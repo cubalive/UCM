@@ -18,13 +18,10 @@ if (!process.env.JWT_SECRET) {
 }
 const JWT_SECRET: string = process.env.JWT_SECRET;
 
+const REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET || (JWT_SECRET + "-refresh");
 if (!process.env.JWT_REFRESH_SECRET) {
-  throw new Error(
-    "FATAL: JWT_REFRESH_SECRET environment variable is not set. " +
-    "Set it in .env before starting the server."
-  );
+  console.warn("[AUTH] JWT_REFRESH_SECRET not set — deriving from JWT_SECRET. Set it explicitly in production.");
 }
-const REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET;
 const UCM_COOKIE = "ucm_access";
 const UCM_REFRESH_COOKIE = "ucm_refresh";
 const UCM_CSRF_COOKIE = "ucm_csrf";

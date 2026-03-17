@@ -880,6 +880,23 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     await bootDb.execute(bootSql`UPDATE users SET email = LOWER(email) WHERE email != LOWER(email)`);
     await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users (LOWER(email))`);
 
+    // Missing users columns that the schema expects
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS patient_id INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+    // public_id: generate unique IDs for existing rows that lack one
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS public_id VARCHAR(20)`);
+    await bootDb.execute(bootSql`
+      UPDATE users SET public_id = 'UCM-' || LPAD(id::TEXT, 6, '0')
+      WHERE public_id IS NULL
+    `);
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        ALTER TABLE users ALTER COLUMN public_id SET NOT NULL;
+      EXCEPTION WHEN OTHERS THEN NULL;
+      END $$
+    `);
+    await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS users_public_id_unique_idx ON users(public_id)`);
+
     // MFA columns on users table
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT false`);
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_method TEXT`);
@@ -963,6 +980,19 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
+
+    // Dispatcher city permissions table
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS dispatcher_city_permissions (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        city_id INTEGER NOT NULL REFERENCES cities(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS dispatcher_city_perms_user_city_idx ON dispatcher_city_permissions(user_id, city_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS dispatcher_city_perms_company_user_idx ON dispatcher_city_permissions(company_id, user_id)`);
 
     // Session revocations table
     await bootDb.execute(bootSql`

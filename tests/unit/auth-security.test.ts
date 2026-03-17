@@ -1132,9 +1132,10 @@ describe("Auth Middleware Helpers", () => {
     });
 
     it("should skip CSRF for webhook paths", () => {
+      // csrfProtection is mounted at /api, so req.path won't include /api prefix
       const req = mockReq({
         method: "POST",
-        path: "/api/stripe/webhook",
+        path: "/stripe/webhook",
         cookies: { ucm_access: "token" },
       });
       const res = mockRes();
@@ -1146,7 +1147,7 @@ describe("Auth Middleware Helpers", () => {
     it("should skip CSRF for login endpoints", () => {
       const req = mockReq({
         method: "POST",
-        path: "/api/auth/login",
+        path: "/auth/login",
         cookies: {},
       });
       const res = mockRes();
@@ -1158,7 +1159,7 @@ describe("Auth Middleware Helpers", () => {
     it("should skip CSRF for public API paths", () => {
       const req = mockReq({
         method: "POST",
-        path: "/api/public/something",
+        path: "/public/something",
         cookies: { ucm_access: "token" },
       });
       const res = mockRes();
@@ -1170,7 +1171,7 @@ describe("Auth Middleware Helpers", () => {
     it("should reject POST with cookie auth but no CSRF token", () => {
       const req = mockReq({
         method: "POST",
-        path: "/api/trips",
+        path: "/trips",
         cookies: { ucm_access: "some-token" },
         headers: {},
       });
@@ -1184,7 +1185,7 @@ describe("Auth Middleware Helpers", () => {
     it("should reject POST with mismatched CSRF cookie and header", () => {
       const req = mockReq({
         method: "POST",
-        path: "/api/trips",
+        path: "/trips",
         cookies: { ucm_access: "token", ucm_csrf: "csrf-cookie-value" },
         headers: { "x-csrf-token": "different-value" },
       });
@@ -1199,7 +1200,7 @@ describe("Auth Middleware Helpers", () => {
       const csrfValue = "matching-csrf-token";
       const req = mockReq({
         method: "POST",
-        path: "/api/trips",
+        path: "/trips",
         cookies: { ucm_access: "token", ucm_csrf: csrfValue },
         headers: { "x-csrf-token": csrfValue },
       });
@@ -1213,7 +1214,7 @@ describe("Auth Middleware Helpers", () => {
       for (const method of ["PUT", "PATCH", "DELETE"]) {
         const req = mockReq({
           method,
-          path: "/api/trips/1",
+          path: "/trips/1",
           cookies: { ucm_access: "token" },
           headers: {},
         });
@@ -1228,7 +1229,7 @@ describe("Auth Middleware Helpers", () => {
     it("should skip CSRF for broker API v1 path", () => {
       const req = mockReq({
         method: "POST",
-        path: "/api/broker-api/v1/trips",
+        path: "/broker-api/v1/trips",
         cookies: { ucm_access: "token" },
       });
       const res = mockRes();
@@ -1240,7 +1241,7 @@ describe("Auth Middleware Helpers", () => {
     it("should skip CSRF for token-login endpoint", () => {
       const req = mockReq({
         method: "POST",
-        path: "/api/auth/token-login",
+        path: "/auth/token-login",
         cookies: {},
       });
       const res = mockRes();
@@ -1252,7 +1253,7 @@ describe("Auth Middleware Helpers", () => {
     it("should skip CSRF for forgot-password endpoint", () => {
       const req = mockReq({
         method: "POST",
-        path: "/api/auth/forgot-password",
+        path: "/auth/forgot-password",
         cookies: {},
       });
       const res = mockRes();
