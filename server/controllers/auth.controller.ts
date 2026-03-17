@@ -45,62 +45,17 @@ export async function loginHandler(req: Request, res: Response) {
     }
 
     // C-4: Forced MFA setup for admin roles without MFA configured
-    if (MFA_REQUIRED_ROLES.includes(user.role) && !user.mfaEnabled) {
-      const setupToken = signMfaSetupToken(user.id, user.role, user.companyId || null);
-      await storage.createAuditLog({
-        userId: user.id,
-        action: "LOGIN_MFA_SETUP_REQUIRED",
-        entity: "user",
-        entityId: user.id,
-        details: `Admin login requires MFA setup for role=${user.role}`,
-        cityId: null,
-      });
-      return res.status(200).json({
-        mfaSetupRequired: true,
-        setupToken,
-        message: "Two-factor authentication is required for your role. Please configure it to access the platform.",
-      });
-    }
+    // DISABLED: MFA setup routes and client UI are not yet implemented.
+    // Re-enable once /api/auth/mfa/* routes and client MFA setup flow exist.
+    // if (MFA_REQUIRED_ROLES.includes(user.role) && !user.mfaEnabled) {
+    //   const setupToken = signMfaSetupToken(user.id, user.role, user.companyId || null);
+    //   return res.status(200).json({ mfaSetupRequired: true, setupToken, message: "..." });
+    // }
 
     // C-3: MFA gate — if user has MFA enabled, require verification before issuing full token
-    if (user.mfaEnabled) {
-      const preAuthToken = signPreAuthToken(user.id, user.role, user.companyId || null);
-
-      // For SMS/Email methods, trigger challenge immediately
-      if (user.mfaMethod === "sms" || user.mfaMethod === "email") {
-        try {
-          const { sendOTP } = await import("../lib/mfaEngine");
-          await sendOTP(user.id, user.mfaMethod as "sms" | "email");
-        } catch (err: any) {
-          console.error("[AUTH] Failed to send MFA challenge:", err.message);
-        }
-      }
-
-      const maskPhone = (phone: string | null) =>
-        phone ? `***${phone.slice(-4)}` : undefined;
-      const maskEmail = (email: string) =>
-        email.replace(/(.{2})[^@]*(@.*)/, "$1****$2");
-
-      await storage.createAuditLog({
-        userId: user.id,
-        action: "LOGIN_MFA_PENDING",
-        entity: "user",
-        entityId: user.id,
-        details: `MFA challenge issued for ${user.email}`,
-        cityId: null,
-      });
-
-      return res.status(200).json({
-        mfaPending: true,
-        preAuthToken,
-        mfaMethod: user.mfaMethod,
-        mfaHint: user.mfaMethod === "sms"
-          ? maskPhone(user.mfaPhone || user.phone)
-          : user.mfaMethod === "email"
-          ? maskEmail(user.email)
-          : undefined,
-      });
-    }
+    // DISABLED: MFA verification routes (/api/auth/mfa/verify-*) are not yet registered.
+    // Re-enable once MFA routes and client verification UI exist.
+    // if (user.mfaEnabled) { ... }
 
     if (user.role === "DRIVER" && user.driverId && process.env.DRIVER_DEVICE_BINDING === "true") {
       const deviceHash = req.headers["x-ucm-device"] as string;
@@ -214,22 +169,9 @@ export async function loginJwtHandler(req: Request, res: Response) {
     }
 
     // MFA gate for driver JWT login
-    if (user.mfaEnabled) {
-      const preAuthToken = signPreAuthToken(user.id, user.role, user.companyId || null);
-      if (user.mfaMethod === "sms" || user.mfaMethod === "email") {
-        try {
-          const { sendOTP } = await import("../lib/mfaEngine");
-          await sendOTP(user.id, user.mfaMethod as "sms" | "email");
-        } catch (err: any) {
-          console.error("[AUTH] Failed to send MFA challenge:", err.message);
-        }
-      }
-      return res.status(200).json({
-        mfaPending: true,
-        preAuthToken,
-        mfaMethod: user.mfaMethod,
-      });
-    }
+    // DISABLED: MFA verification routes are not yet registered.
+    // Re-enable once MFA routes and client verification UI exist.
+    // if (user.mfaEnabled) { ... }
 
     if (user.role === "DRIVER" && user.driverId && process.env.DRIVER_DEVICE_BINDING === "true") {
       const deviceHash = req.headers["x-ucm-device"] as string;

@@ -794,7 +794,7 @@ function AuthenticatedApp() {
 
   if (isDispatchHost) {
     const role = user.role.toUpperCase();
-    const dispatchAllowed = ["DISPATCH", "SUPER_ADMIN"];
+    const dispatchAllowed = ["DISPATCH", "SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN"];
     if (!dispatchAllowed.includes(role)) {
       return <DispatchHostUnauthorized />;
     }
