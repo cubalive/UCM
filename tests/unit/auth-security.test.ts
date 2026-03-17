@@ -1261,6 +1261,30 @@ describe("Auth Middleware Helpers", () => {
       csrfProtection(req, res, next);
       expect(next).toHaveBeenCalled();
     });
+
+    it("should skip CSRF for refresh endpoint", () => {
+      const req = mockReq({
+        method: "POST",
+        path: "/auth/refresh",
+        cookies: {},
+      });
+      const res = mockRes();
+      const next = mockNext();
+      csrfProtection(req, res, next);
+      expect(next).toHaveBeenCalled();
+    });
+
+    it("should skip CSRF for logout endpoint", () => {
+      const req = mockReq({
+        method: "POST",
+        path: "/auth/logout",
+        cookies: { ucm_access: "token" },
+      });
+      const res = mockRes();
+      const next = mockNext();
+      csrfProtection(req, res, next);
+      expect(next).toHaveBeenCalled();
+    });
   });
 });
 

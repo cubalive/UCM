@@ -637,6 +637,13 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
     return next();
   }
 
+  // Skip CSRF for refresh and logout — refresh uses its own httpOnly cookie
+  // scoped to /api/auth/refresh, and both endpoints need to work when the
+  // CSRF cookie has expired alongside the access token.
+  if (req.path === "/auth/refresh" || req.path === "/auth/logout") {
+    return next();
+  }
+
   const csrfCookie = req.cookies?.[UCM_CSRF_COOKIE];
   const csrfHeader = req.headers["x-csrf-token"] as string;
 
