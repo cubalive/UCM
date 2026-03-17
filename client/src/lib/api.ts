@@ -1,6 +1,6 @@
 import { isDriverHost, isProductionSubdomain, DRIVER_TOKEN_KEY } from "@/lib/hostDetection";
 
-const PROD_API_DEFAULT = "https://app.unitedcaremobility.com";
+const PROD_API_DEFAULT = "https://admin.unitedcaremobility.com";
 
 export const API_BASE_URL: string = (() => {
   const envVal = import.meta.env.VITE_API_BASE_URL as string | undefined;
