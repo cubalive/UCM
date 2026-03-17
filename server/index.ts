@@ -13,6 +13,7 @@ import { phiAuditMiddleware } from "./middleware/phiAudit";
 import { inputSanitizer } from "./middleware/inputSanitizer";
 import { apiRateLimiter } from "./middleware/rateLimiter";
 import { structuredLoggerMiddleware } from "./middleware/structuredLogger";
+import { subdomainRoleGuard } from "./middleware/subdomainRoleGuard";
 import compression from "compression";
 import * as Sentry from "@sentry/node";
 
@@ -62,7 +63,7 @@ app.use((req, res, next) => {
     `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
     "img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com https://*.stripe.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' https://admin.unitedcaremobility.com wss://admin.unitedcaremobility.com wss: https://*.supabase.co https://api.stripe.com https://maps.googleapis.com https://*.upstash.io",
+    "connect-src 'self' https://*.unitedcaremobility.com wss://*.unitedcaremobility.com wss: https://*.supabase.co https://api.stripe.com https://maps.googleapis.com https://*.upstash.io",
     "frame-src https://js.stripe.com https://hooks.stripe.com",
     "object-src 'none'",
     "base-uri 'self'",
@@ -174,7 +175,7 @@ app.use("/api/public", (req, res, next) => {
   if (isPublicOrigin(origin) || isAppOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-City-Id, X-UCM-Device, x-ucm-company-id");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-City-Id, X-UCM-Device, x-ucm-company-id, X-CSRF-Token");
     res.setHeader("Access-Control-Max-Age", "86400");
   } else if (origin) {
     console.warn(`[CORS] Blocked public origin="${origin}" path="${req.path}" method="${req.method}"`);
@@ -195,7 +196,7 @@ app.use("/api", (req, res, next) => {
   if (isAppOrigin(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Stripe-Signature, X-City-Id, X-UCM-Device, x-ucm-company-id");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Stripe-Signature, X-City-Id, X-UCM-Device, x-ucm-company-id, X-CSRF-Token");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Max-Age", "86400");
   } else if (origin) {
@@ -284,6 +285,7 @@ app.use("/api", csrfProtection);
 
 app.use("/api", apiRateLimiter);
 app.use(tenantGuard);
+app.use(subdomainRoleGuard);
 app.use(phiAuditMiddleware);
 
 // Structured request logger — logs every API request in structured JSON with PII masking.

@@ -193,6 +193,14 @@ export async function loginJwtHandler(req: Request, res: Response) {
       return res.status(403).json({ message: "This endpoint is for driver accounts only" });
     }
 
+    // Block driver users with no company assigned
+    if (!user.companyId) {
+      return res.status(403).json({
+        message: "Account configuration error: no company assigned",
+        code: "NO_COMPANY",
+      });
+    }
+
     // MFA gate for driver JWT login
     if (user.mfaEnabled) {
       const preAuthToken = signPreAuthToken(user.id, user.role, user.companyId || null);
