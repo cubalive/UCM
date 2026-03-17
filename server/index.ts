@@ -62,7 +62,7 @@ app.use((req, res, next) => {
     `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
     "img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com https://*.stripe.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' wss: https://*.supabase.co https://api.stripe.com https://maps.googleapis.com https://*.upstash.io",
+    "connect-src 'self' https://admin.unitedcaremobility.com wss://admin.unitedcaremobility.com wss: https://*.supabase.co https://api.stripe.com https://maps.googleapis.com https://*.upstash.io",
     "frame-src https://js.stripe.com https://hooks.stripe.com",
     "object-src 'none'",
     "base-uri 'self'",
