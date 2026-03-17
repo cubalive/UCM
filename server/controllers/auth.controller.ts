@@ -138,8 +138,14 @@ export async function loginHandler(req: Request, res: Response) {
       console.warn("[AUTH] issueRefreshToken failed (table may not exist), falling back to JWT refresh:", rtErr.message);
       refreshToken = signRefreshToken({ userId: user.id });
     }
-    const cityAccess = await storage.getUserCityAccess(user.id);
-    const allCities = await storage.getCities();
+    let cityAccess: number[] = [];
+    let allCities: Awaited<ReturnType<typeof storage.getCities>> = [];
+    try {
+      cityAccess = await storage.getUserCityAccess(user.id);
+      allCities = await storage.getCities();
+    } catch (cityErr: any) {
+      console.warn("[AUTH] City access query failed (non-fatal):", cityErr.message);
+    }
 
     const accessibleCities = user.role === "SUPER_ADMIN"
       ? allCities
@@ -149,14 +155,14 @@ export async function loginHandler(req: Request, res: Response) {
 
     const { password, ...safeUser } = user;
 
-    await storage.createAuditLog({
+    storage.createAuditLog({
       userId: user.id,
       action: "LOGIN",
       entity: "user",
       entityId: user.id,
       details: `User ${user.email} logged in`,
       cityId: null,
-    });
+    }).catch(() => {});
 
     setAuthCookies(res, accessToken, refreshToken, req);
 

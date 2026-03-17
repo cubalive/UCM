@@ -880,6 +880,23 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     await bootDb.execute(bootSql`UPDATE users SET email = LOWER(email) WHERE email != LOWER(email)`);
     await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users (LOWER(email))`);
 
+    // Missing users columns that the schema expects
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS patient_id INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+    // public_id: generate unique IDs for existing rows that lack one
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS public_id VARCHAR(20)`);
+    await bootDb.execute(bootSql`
+      UPDATE users SET public_id = 'UCM-' || LPAD(id::TEXT, 6, '0')
+      WHERE public_id IS NULL
+    `);
+    await bootDb.execute(bootSql`
+      DO $$ BEGIN
+        ALTER TABLE users ALTER COLUMN public_id SET NOT NULL;
+      EXCEPTION WHEN OTHERS THEN NULL;
+      END $$
+    `);
+    await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS users_public_id_unique_idx ON users(public_id)`);
+
     // MFA columns on users table
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT false`);
     await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_method TEXT`);
