@@ -173,6 +173,38 @@ export const users = pgTable("users", {
   deletedAt: timestamp("deleted_at"),
   deletedBy: integer("deleted_by"),
   deleteReason: text("delete_reason"),
+  // MFA fields
+  mfaEnabled: boolean("mfa_enabled").notNull().default(false),
+  mfaMethod: text("mfa_method"), // 'totp' | 'sms' | 'email'
+  mfaSecret: text("mfa_secret"), // encrypted TOTP secret
+  mfaPhone: text("mfa_phone"), // phone for SMS OTP
+  mfaVerifiedAt: timestamp("mfa_verified_at"),
+  mfaFailedAttempts: integer("mfa_failed_attempts").notNull().default(0),
+  mfaLockedUntil: timestamp("mfa_locked_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ─── MFA Backup Codes ────────────────────────────────────────────────────────
+
+export const mfaBackupCodes = pgTable("mfa_backup_codes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  codeHash: text("code_hash").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ─── MFA Audit Log ───────────────────────────────────────────────────────────
+
+export const mfaAuditLog = pgTable("mfa_audit_log", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").references(() => users.id),
+  eventType: text("event_type").notNull(), // setup_started, setup_completed, verified_success, verified_failed, backup_used, disabled, locked, unlocked
+  method: text("method"), // totp, sms, email, backup
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  portal: text("portal"),
+  metadata: text("metadata"), // JSON string
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
