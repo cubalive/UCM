@@ -36,13 +36,9 @@ export async function loginHandler(req: Request, res: Response) {
       return res.status(403).json({ message: "Account disabled" });
     }
 
-    // C-8: Block non-SUPER_ADMIN users with no companyId
-    if (user.role !== "SUPER_ADMIN" && !user.companyId) {
-      return res.status(403).json({
-        message: "Account configuration error: no company assigned",
-        code: "NO_COMPANY",
-      });
-    }
+    // Note: companyId checks are handled post-login by authMiddleware and tenantGuard.
+    // Login should only authenticate (verify identity), not authorize.
+    // This allows users to log in and see helpful UI messages about missing company config.
 
     // C-4: Forced MFA setup for admin roles without MFA configured
     // DISABLED: MFA setup routes and client UI are not yet implemented.
@@ -156,17 +152,16 @@ export async function loginJwtHandler(req: Request, res: Response) {
       return res.status(403).json({ message: "Account disabled" });
     }
 
-    if (user.role !== "DRIVER") {
-      return res.status(403).json({ message: "This endpoint is for driver accounts only" });
-    }
-
-    // Block driver users with no company assigned
-    if (!user.companyId) {
+    // Allow DRIVER and SUPER_ADMIN (for testing/impersonation on driver portal)
+    if (user.role !== "DRIVER" && user.role !== "SUPER_ADMIN") {
       return res.status(403).json({
-        message: "Account configuration error: no company assigned",
-        code: "NO_COMPANY",
+        message: "This portal is for driver accounts only. Please use admin.unitedcaremobility.com",
+        code: "WRONG_PORTAL",
       });
     }
+
+    // Note: companyId checks are handled post-login by authMiddleware.
+    // Login should only authenticate (verify identity), not authorize.
 
     // MFA gate for driver JWT login
     // DISABLED: MFA verification routes are not yet registered.

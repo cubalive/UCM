@@ -307,17 +307,10 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
       });
     }
 
-    // C-8: Block non-SUPER_ADMIN users with no companyId
-    if (
-      payload.role !== "SUPER_ADMIN" &&
-      !payload.companyId &&
-      payload.scope === "full"
-    ) {
-      return res.status(403).json({
-        error: "Account configuration error: no company assigned",
-        code: "NO_COMPANY",
-      });
-    }
+    // C-8: Company check moved to tenantGuard/requireCompanyId middleware.
+    // authMiddleware should only verify token validity, not business rules.
+    // Users without companyId can authenticate but will be restricted by
+    // requireCompanyId() on endpoints that need tenant context.
 
     // All roles including SUPER_ADMIN are subject to session revocation.
     // A compromised SUPER_ADMIN token must be revocable.
