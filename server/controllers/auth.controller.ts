@@ -390,6 +390,8 @@ export async function meHandler(req: Request, res: Response) {
 
   if (header?.startsWith("Bearer ")) {
     token = header.slice(7);
+  } else if (req.cookies?.ucm_access) {
+    token = req.cookies.ucm_access;
   } else if (req.cookies?.ucm_session) {
     token = req.cookies.ucm_session;
   }

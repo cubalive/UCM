@@ -26,6 +26,7 @@ jobs:
   unit-tests:
     name: Unit & Integration Tests
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,6 +35,8 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npx vitest run --reporter=verbose
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       - name: Coverage check
         run: npx vitest run --coverage --coverage.reporter=text --coverage.reporter=lcov
         continue-on-error: true
