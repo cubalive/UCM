@@ -139,13 +139,13 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
             />
           </div>
           <div className="border-t pt-4">
-            <p className="text-sm font-medium mb-3">Primary City (required)</p>
+            <p className="text-sm font-medium mb-3">{t("companies.primaryCity")}</p>
             <div className="space-y-3">
               <div className="space-y-2">
-                <Label>State</Label>
+                <Label>{t("companies.state")}</Label>
                 <Select value={selectedState} onValueChange={handleStateChange}>
                   <SelectTrigger data-testid="select-company-state">
-                    <SelectValue placeholder="Select a state..." />
+                    <SelectValue placeholder={t("companies.selectState")} />
                   </SelectTrigger>
                   <SelectContent>
                     {states.map((s) => (
@@ -159,13 +159,13 @@ function CreateCompanyDialog({ onCreated }: { onCreated: () => void }) {
 
               {selectedState && (
                 <div className="space-y-2">
-                  <Label>City</Label>
+                  <Label>{t("companies.city")}</Label>
                   <div className="relative">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       value={citySearch}
                       onChange={(e) => setCitySearch(e.target.value)}
-                      placeholder="Search cities..."
+                      placeholder={t("companies.searchCities")}
                       className="pl-8"
                       data-testid="input-city-search"
                     />
