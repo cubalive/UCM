@@ -880,6 +880,103 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     await bootDb.execute(bootSql`UPDATE users SET email = LOWER(email) WHERE email != LOWER(email)`);
     await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users (LOWER(email))`);
 
+    // MFA columns on users table
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_enabled BOOLEAN NOT NULL DEFAULT false`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_method TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_secret TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_phone TEXT`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_verified_at TIMESTAMP`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_failed_attempts INTEGER NOT NULL DEFAULT 0`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS mfa_locked_until TIMESTAMP`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_by INTEGER`);
+    await bootDb.execute(bootSql`ALTER TABLE users ADD COLUMN IF NOT EXISTS delete_reason TEXT`);
+
+    // MFA backup codes table
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS mfa_backup_codes (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        code_hash TEXT NOT NULL,
+        used_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // MFA audit log table
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS mfa_audit_log (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id),
+        event_type TEXT NOT NULL,
+        method TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        portal TEXT,
+        metadata TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // Refresh tokens table (H-1: single-use rotation)
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS refresh_tokens (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        family TEXT NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        revoked_at TIMESTAMP,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash)`);
+    await bootDb.execute(bootSql`CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family)`);
+
+    // Feature flags table
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS feature_flags (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        company_id INTEGER REFERENCES companies(id),
+        flag_key TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT false,
+        updated_by INTEGER REFERENCES users(id),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await bootDb.execute(bootSql`CREATE UNIQUE INDEX IF NOT EXISTS feature_flags_company_key_idx ON feature_flags(company_id, flag_key)`);
+
+    // Driver devices table (device binding)
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS driver_devices (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        driver_id INTEGER NOT NULL REFERENCES drivers(id),
+        company_id INTEGER REFERENCES companies(id),
+        device_fingerprint_hash TEXT NOT NULL,
+        device_label TEXT,
+        last_seen_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // Session revocations table
+    await bootDb.execute(bootSql`
+      CREATE TABLE IF NOT EXISTS session_revocations (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        company_id INTEGER REFERENCES companies(id),
+        revoked_after TIMESTAMP NOT NULL,
+        reason TEXT,
+        created_by_user_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
     console.log("[BOOT] Schema migrations applied successfully");
   } catch (migErr: any) {
     console.warn("[BOOT] Schema migration warning:", migErr.message);
