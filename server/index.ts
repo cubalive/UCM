@@ -362,22 +362,10 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
 (async () => {
   // Start listening EARLY so Railway/infra healthcheck (/api/health/live) can respond
   // while the rest of boot (migrations, route registration, etc.) completes.
-  // Both API and worker modes start an HTTP server early to pass healthchecks during boot.
+  // Worker mode skips this — the worker is an unexposed Railway service with no HTTP healthcheck.
   const port = parseInt(process.env.PORT || "5000", 10);
   const earlyRunMode = (process.env.RUN_MODE || process.env.ROLE_MODE || "all").toLowerCase().trim();
-  if (earlyRunMode === "worker") {
-    // Worker mode: start a minimal healthcheck HTTP server IMMEDIATELY so Railway
-    // healthcheck passes while DB connection, migrations, and scheduler init proceed.
-    const workerHealthServer = createServer((_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "worker-alive", uptime: Math.round(process.uptime()), pid: process.pid }));
-    });
-    workerHealthServer.listen(port, "0.0.0.0", () => {
-      console.log(JSON.stringify({ event: "worker_early_healthcheck", port, ts: new Date().toISOString() }));
-    });
-    // Store reference so the later worker boot can skip creating a duplicate server
-    (globalThis as any).__workerHealthServer = workerHealthServer;
-  } else {
+  if (earlyRunMode !== "worker") {
     httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
       console.log(JSON.stringify({ event: "http_listening", port, ts: new Date().toISOString() }));
     });
@@ -1055,8 +1043,8 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
       ts: new Date().toISOString(),
     }));
 
-    // Early healthcheck server was already started at the top of boot — no need to create another.
-    // The early server responds to all paths with 200, satisfying Railway's /api/health/live check.
+    // No HTTP healthcheck server needed — ucm-worker is an unexposed Railway service.
+    // Railway skips healthchecks for services without healthcheckPath in the config.
 
     await initSchedulers();
 
