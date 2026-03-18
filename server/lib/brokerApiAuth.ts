@@ -5,7 +5,7 @@
  * and IP whitelisting for the external broker API (v1).
  */
 import type { Request, Response, NextFunction } from "express";
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import { db } from "../db";
 import { brokerApiKeys, brokerApiLogs, brokers } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -28,6 +28,18 @@ function hashApiKey(key: string): string {
 }
 
 /**
+ * Constant-time comparison for API key hashes to prevent timing attacks.
+ */
+function safeCompareHashes(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Core authentication middleware for broker external API.
  * Validates Bearer token, checks broker status, rate limits, IP whitelist.
  */
@@ -45,15 +57,16 @@ export function authenticateBrokerApi(requiredPermission?: string) {
 
     const rawKey = authHeader.slice(7); // Remove "Bearer "
     const keyHash = hashApiKey(rawKey);
-    const keyPrefix = rawKey.slice(0, 8);
 
     try {
-      // Look up the API key
-      const [apiKey] = await db
+      // Look up active API keys and compare with timing-safe comparison
+      const activeKeys = await db
         .select()
         .from(brokerApiKeys)
-        .where(and(eq(brokerApiKeys.keyHash, keyHash), eq(brokerApiKeys.isActive, true)))
-        .limit(1);
+        .where(eq(brokerApiKeys.isActive, true))
+        .limit(100);
+
+      const apiKey = activeKeys.find((k) => safeCompareHashes(k.keyHash, keyHash));
 
       if (!apiKey) {
         await logApiCallDirect(null, null, req, 401, startTime);
@@ -117,22 +130,33 @@ export function authenticateBrokerApi(requiredPermission?: string) {
         });
       }
 
-      // Check permission
+      // S3 FIX: Check permission — NEVER leak currentPermissions in response
       if (requiredPermission && !apiKey.permissions.includes(requiredPermission)) {
-        await logApiCallDirect(apiKey.brokerId, apiKey.id, req, 403, startTime);
-        return res.status(403).json({
-          error: "forbidden",
-          message: `API key lacks required permission: ${requiredPermission}`,
+        // Log the details internally for debugging
+        console.warn(JSON.stringify({
+          event: "broker_api_insufficient_permission",
+          brokerId: apiKey.brokerId,
+          apiKeyId: apiKey.id,
           requiredPermission,
-          currentPermissions: apiKey.permissions,
+          path: req.path,
+          method: req.method,
+          ip: req.ip || req.socket.remoteAddress || "unknown",
+          ts: new Date().toISOString(),
+        }));
+        await logApiCallDirect(apiKey.brokerId, apiKey.id, req, 403, startTime);
+        // Return ONLY the error — no permission details
+        return res.status(403).json({
+          error: "Insufficient permissions",
         });
       }
 
-      // Update last used timestamp (fire and forget)
+      // Update last used timestamp (fire and forget with error logging)
       db.update(brokerApiKeys)
         .set({ lastUsedAt: new Date() })
         .where(eq(brokerApiKeys.id, apiKey.id))
-        .catch(() => {});
+        .catch((err: any) => {
+          console.error("[BrokerAPI] Failed to update lastUsedAt:", err.message);
+        });
 
       // Attach broker context to request
       (req as BrokerApiRequest).broker = {
@@ -148,7 +172,9 @@ export function authenticateBrokerApi(requiredPermission?: string) {
       const originalJson = res.json.bind(res);
       res.json = function (body: any) {
         logApiCallDirect(apiKey.brokerId, apiKey.id, req, res.statusCode, startTime, body).catch(
-          () => {},
+          (err: any) => {
+            console.error("[BrokerAPI] Failed to log API call:", err.message);
+          },
         );
         return originalJson(body);
       };
@@ -186,6 +212,9 @@ async function logApiCallDirect(
       delete sanitized.password;
       delete sanitized.secret;
       delete sanitized.apiKey;
+      delete sanitized.token;
+      delete sanitized.ssn;
+      delete sanitized.dateOfBirth;
       requestBody = sanitized;
     }
 

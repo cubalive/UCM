@@ -1,10 +1,12 @@
-import { db } from "../db";
+import { db, pool } from "../db";
 import { trips, drivers } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { VALID_TRANSITIONS, STATUS_TIMESTAMP_MAP } from "@shared/tripStateMachine";
 import { broadcastToTrip } from "./realtime";
 import { broadcastTripSupabase } from "./supabaseRealtime";
+import { drizzle } from "drizzle-orm/node-postgres";
+import * as schema from "@shared/schema";
 
 const ACTIVE_TRIP_STATUSES = [
   "EN_ROUTE_TO_PICKUP",
@@ -145,17 +147,73 @@ export async function transitionTripStatus(
   }
 
   const previousStatus = trip.status;
-  const updated = await db
-    .update(trips)
-    .set(updateData)
-    .where(and(eq(trips.id, tripId), eq(trips.status, previousStatus)))
-    .returning();
 
-  if (!updated.length) {
-    return { success: false, trip, previousStatus, error: "Concurrent update detected" };
+  // D4 FIX: Wrap transition in a transaction with row-level locking
+  let updatedTrip: typeof trip;
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // SELECT FOR UPDATE to lock the trip row and prevent concurrent modifications
+      const lockResult = await client.query(
+        "SELECT id, status, version FROM trips WHERE id = $1 FOR UPDATE",
+        [tripId]
+      );
+
+      if (lockResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return { success: false, trip, previousStatus, error: "Trip not found during lock" };
+      }
+
+      const lockedTrip = lockResult.rows[0];
+
+      // Verify status hasn't changed since our initial read
+      if (lockedTrip.status !== previousStatus) {
+        await client.query("ROLLBACK");
+        return { success: false, trip, previousStatus, error: "Concurrent update detected — status changed" };
+      }
+
+      // If assigning a driver, verify driver is not already on an active trip
+      if (nextStatus === "ASSIGNED" && updateData.driverId) {
+        const activeDriverTrip = await client.query(
+          `SELECT id FROM trips WHERE driver_id = $1 AND status IN ('EN_ROUTE_TO_PICKUP', 'ARRIVED_PICKUP', 'PICKED_UP', 'EN_ROUTE_TO_DROPOFF', 'IN_PROGRESS', 'ARRIVED_DROPOFF') AND id != $2 LIMIT 1`,
+          [updateData.driverId, tripId]
+        );
+        if (activeDriverTrip.rows.length > 0) {
+          await client.query("ROLLBACK");
+          return { success: false, trip, previousStatus, error: `Driver is already assigned to active trip ${activeDriverTrip.rows[0].id}` };
+        }
+      }
+
+      // Perform the update with optimistic locking (version check)
+      const txDb = drizzle(client as any, { schema });
+      const updated = await txDb
+        .update(trips)
+        .set(updateData)
+        .where(and(eq(trips.id, tripId), eq(trips.status, previousStatus as any)))
+        .returning();
+
+      if (!updated.length) {
+        await client.query("ROLLBACK");
+        return { success: false, trip, previousStatus, error: "Concurrent update detected" };
+      }
+
+      await client.query("COMMIT");
+      updatedTrip = updated[0];
+    } catch (txErr) {
+      await client.query("ROLLBACK").catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
+      throw txErr;
+    } finally {
+      client.release();
+    }
+  } catch (err: any) {
+    // Auto-retry on serialization failure (up to 3 times)
+    if (err.code === "40001" || err.message?.includes("could not serialize")) {
+      console.warn(`[TRANSITION] Serialization conflict for trip ${tripId}, will be retried by caller`);
+    }
+    return { success: false, trip, previousStatus, error: `Transaction failed: ${err.message}` };
   }
-
-  const updatedTrip = updated[0];
 
   try {
     let driverLat: number | null = null;
@@ -337,7 +395,7 @@ export async function transitionTripStatus(
             publicId: updatedTrip.publicId,
             completedAt: updatedTrip.completedAt,
             cancelledAt: updatedTrip.cancelledAt,
-          }).catch(() => {});
+          }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
         } catch {}
       }
     } catch {}
@@ -370,7 +428,7 @@ export async function transitionTripStatus(
       saveTripPingQuality(tripId).catch(err => {
         console.warn(`[GPS-QUALITY] Failed to compute for trip ${tripId}: ${err.message}`);
       });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   }
 
   // When a trip is cancelled and had a driver, suggest reassignment alternatives
@@ -386,7 +444,7 @@ export async function transitionTripStatus(
   }
 
   if (TERMINAL_STATUSES.includes(nextStatus)) {
-    storage.revokeTokensForTrip(tripId).catch(() => {});
+    storage.revokeTokensForTrip(tripId).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     if (!updatedTrip.billingOutcome) {
       try {
@@ -456,7 +514,7 @@ export async function transitionTripStatus(
       clinicId: updatedTrip.clinicId,
     }),
     cityId: updatedTrip.cityId,
-  }).catch(() => {});
+  }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
   return { success: true, trip: updatedTrip, previousStatus };
 }

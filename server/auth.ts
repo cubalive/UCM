@@ -18,9 +18,24 @@ if (!process.env.JWT_SECRET) {
 }
 const JWT_SECRET: string = process.env.JWT_SECRET;
 
-const REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET || (JWT_SECRET + "-refresh");
+// S4/S5 FIX: JWT_REFRESH_SECRET is REQUIRED in production — never derived from JWT_SECRET
+const IS_PROD_AUTH = process.env.NODE_ENV === "production";
 if (!process.env.JWT_REFRESH_SECRET) {
-  console.warn("[AUTH] JWT_REFRESH_SECRET not set — deriving from JWT_SECRET. Set it explicitly in production.");
+  if (IS_PROD_AUTH) {
+    throw new Error(
+      "FATAL: JWT_REFRESH_SECRET environment variable is not set. " +
+      "It must be a unique value different from JWT_SECRET (min 32 chars). " +
+      "Generate with: openssl rand -base64 48"
+    );
+  }
+  console.warn("[AUTH] JWT_REFRESH_SECRET not set — using derived fallback. THIS IS INSECURE FOR PRODUCTION.");
+}
+const REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET || (JWT_SECRET + "-refresh-dev-only");
+if (process.env.JWT_REFRESH_SECRET && process.env.JWT_REFRESH_SECRET.length < 32) {
+  throw new Error("FATAL: JWT_REFRESH_SECRET must be at least 32 characters long.");
+}
+if (process.env.JWT_REFRESH_SECRET === process.env.JWT_SECRET) {
+  throw new Error("FATAL: JWT_REFRESH_SECRET must be different from JWT_SECRET.");
 }
 const UCM_COOKIE = "ucm_access";
 const UCM_REFRESH_COOKIE = "ucm_refresh";
@@ -136,6 +151,23 @@ export function signMfaSetupToken(userId: number, role: string, companyId: numbe
 
 export function signRefreshToken(payload: { userId: number }): string {
   return jwt.sign(payload, REFRESH_SECRET, { expiresIn: "7d" });
+}
+
+/**
+ * Generate an opaque refresh token (not JWT) for enhanced security.
+ * The raw token is returned to the client; only the SHA-256 hash is stored in DB.
+ */
+export function generateOpaqueRefreshToken(): { raw: string; hash: string } {
+  const raw = crypto.randomBytes(48).toString("base64url");
+  const hash = crypto.createHash("sha256").update(raw).digest("hex");
+  return { raw, hash };
+}
+
+/**
+ * Hash a raw refresh token for DB lookup.
+ */
+export function hashRefreshToken(raw: string): string {
+  return crypto.createHash("sha256").update(raw).digest("hex");
 }
 
 export function verifyToken(token: string): AuthPayload {
@@ -307,17 +339,10 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
       });
     }
 
-    // C-8: Block non-SUPER_ADMIN users with no companyId
-    if (
-      payload.role !== "SUPER_ADMIN" &&
-      !payload.companyId &&
-      payload.scope === "full"
-    ) {
-      return res.status(403).json({
-        error: "Account configuration error: no company assigned",
-        code: "NO_COMPANY",
-      });
-    }
+    // C-8: Company check moved to tenantGuard/requireCompanyId middleware.
+    // authMiddleware should only verify token validity, not business rules.
+    // Users without companyId can authenticate but will be restricted by
+    // requireCompanyId() on endpoints that need tenant context.
 
     // All roles including SUPER_ADMIN are subject to session revocation.
     // A compromised SUPER_ADMIN token must be revocable.

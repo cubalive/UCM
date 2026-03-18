@@ -354,17 +354,17 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
 
     import("../lib/realtime").then(({ broadcastToTrip }) => {
       broadcastToTrip(id, { type: "status_change", data: { status: "ASSIGNED", tripId: id } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     import("../lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
       broadcastTripSupabase(id, { type: "status_change", data: { status: "ASSIGNED", tripId: id } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     const smsBaseUrl = process.env.PUBLIC_BASE_URL_APP
       || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://app.unitedcaremobility.com");
     import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
       autoNotifyPatient(id, "driver_assigned", { base_url: smsBaseUrl });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     sendPushToDriver(driverId, {
       title: "Trip Assigned",
@@ -389,11 +389,11 @@ export async function assignTripHandler(req: AuthRequest, res: Response) {
                   driverName: `${driver.firstName} ${driver.lastName}`,
                   publicId: updatedTrip.publicId,
                   assignedAt: now.toISOString(),
-                }).catch(() => {});
-              }).catch(() => {});
+                }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
+              }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
             }
-          }).catch(() => {});
-      }).catch(() => {});
+          }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     await storage.createAuditLog({
@@ -916,7 +916,7 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
 
     import("../lib/tripRouteService").then(({ ensureTripRouteNonBlocking }) => {
       ensureTripRouteNonBlocking(trip.id);
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     import("../lib/eventBus").then(({ emitEvent }) => {
       emitEvent("trip.created", {
@@ -933,12 +933,12 @@ export async function createTripHandler(req: AuthRequest, res: Response) {
         pickupPlaceId: trip.pickupPlaceId,
         dropoffPlaceId: trip.dropoffPlaceId,
       }, `trip.created:${trip.id}`);
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     if (!trip.driverId && trip.approvalStatus === "approved") {
       import("../lib/autoAssignV2Engine").then(({ assignTripAutomatically }) => {
-        assignTripAutomatically(trip.id, "trip_created", req.user?.userId).catch(() => {});
-      }).catch(() => {});
+        assignTripAutomatically(trip.id, "trip_created", req.user?.userId).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     res.json(trip);
@@ -1119,7 +1119,7 @@ export async function updateTripHandler(req: AuthRequest, res: Response) {
     if (addressChanged) {
       import("../lib/tripRouteService").then(({ ensureTripRouteNonBlocking }) => {
         ensureTripRouteNonBlocking(id);
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     res.json(trip);
@@ -1228,7 +1228,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
                 entityId: id,
                 details: JSON.stringify({ status: parsed.data.status, distanceMeters: Math.round(dist), normalRadius: PICKUP_RADIUS, fallbackRadius: MANUAL_FALLBACK_RADIUS }),
                 cityId: trip.cityId,
-              }).catch(() => {});
+              }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
             }
           }
           if (parsed.data.status === "ARRIVED_DROPOFF" && trip.dropoffLat && trip.dropoffLng) {
@@ -1252,7 +1252,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
                 entityId: id,
                 details: JSON.stringify({ status: parsed.data.status, distanceMeters: Math.round(dist), normalRadius: DROPOFF_RADIUS, fallbackRadius: MANUAL_FALLBACK_RADIUS }),
                 cityId: trip.cityId,
-              }).catch(() => {});
+              }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
             }
           }
         }
@@ -1313,11 +1313,11 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
 
     import("../lib/realtime").then(({ broadcastToTrip }) => {
       broadcastToTrip(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     import("../lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
       broadcastTripSupabase(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     const STATUS_PERSIST_TRIGGERS = ["ARRIVED_PICKUP", "PICKED_UP", "ARRIVED_DROPOFF", "EN_ROUTE_TO_DROPOFF"];
     if (updatedTrip.driverId && STATUS_PERSIST_TRIGGERS.includes(parsed.data.status)) {
@@ -1326,7 +1326,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
         if (loc) {
           persistOnStatusEvent(updatedTrip.driverId!, loc.lat, loc.lng);
         }
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     const smsBaseUrl = process.env.PUBLIC_BASE_URL_APP
@@ -1335,31 +1335,31 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
     if (parsed.data.status === "EN_ROUTE_TO_PICKUP") {
       import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
         autoNotifyPatient(id, "en_route", { base_url: smsBaseUrl });
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     if (parsed.data.status === "ARRIVED_PICKUP") {
       import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
         autoNotifyPatient(id, "arrived");
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     if (parsed.data.status === "PICKED_UP") {
       import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
         autoNotifyPatient(id, "picked_up");
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     if (parsed.data.status === "CANCELLED") {
       import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
         autoNotifyPatient(id, "canceled");
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     if (parsed.data.status === "COMPLETED") {
       import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
         autoNotifyPatient(id, "completed");
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
       // Send patient rating request SMS after trip completion
       import("../lib/patientRatingEngine").then(({ autoSendRatingRequest }) => {
@@ -1380,7 +1380,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
           autoBillingClassify(updatedTrip).catch((err: any) => {
             console.error(`[BILLING] Auto-classify failed for trip ${id}:`, err.message);
           });
-        }).catch(() => {});
+        }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       }
 
       if (parsed.data.status === "COMPLETED" && updatedTrip.clinicId) {
@@ -1388,7 +1388,7 @@ export async function updateTripStatusHandler(req: AuthRequest, res: Response) {
           computeTripBilling(id).catch((err: any) => {
             console.error(`[TARIFF-BILLING] Auto-compute failed for trip ${id}:`, err.message);
           });
-        }).catch(() => {});
+        }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       }
     }
 
@@ -1491,11 +1491,11 @@ export async function dispatchOverrideStatusHandler(req: AuthRequest, res: Respo
 
     import("../lib/realtime").then(({ broadcastToTrip }) => {
       broadcastToTrip(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     import("../lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
       broadcastTripSupabase(id, { type: "status_change", data: { status: parsed.data.status, tripId: id } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     await storage.createAuditLog({
       userId: req.user!.userId,
@@ -1580,18 +1580,18 @@ export async function acceptTripHandler(req: AuthRequest, res: Response) {
 
     import("../lib/realtime").then(({ broadcastToTrip }) => {
       broadcastToTrip(id, { type: "status_change", data: { status: "EN_ROUTE_TO_PICKUP", tripId: id } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     import("../lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
       broadcastTripSupabase(id, { type: "status_change", data: { status: "EN_ROUTE_TO_PICKUP", tripId: id } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     const baseUrl = process.env.PUBLIC_BASE_URL_APP
       || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://app.unitedcaremobility.com");
 
     import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
       autoNotifyPatient(id, "en_route", { base_url: baseUrl });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     if (updatedTrip.driverId) {
       import("../lib/driverLocationIngest").then(({ persistOnStatusEvent, getDriverLocationFromCache }) => {
@@ -1599,7 +1599,7 @@ export async function acceptTripHandler(req: AuthRequest, res: Response) {
         if (loc) {
           persistOnStatusEvent(updatedTrip.driverId!, loc.lat, loc.lng);
         }
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     await storage.createAuditLog({
@@ -1870,12 +1870,12 @@ export async function cancelRequestHandler(req: AuthRequest, res: Response) {
 
       import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
         autoNotifyPatient(id, "canceled");
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
       if (updated && !updated.billingOutcome) {
         import("../lib/clinicBillingRoutes").then(({ autoBillingClassify }) => {
-          autoBillingClassify(updated).catch(() => {});
-        }).catch(() => {});
+          autoBillingClassify(updated).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
+        }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       }
 
       return res.json(updated);
@@ -1990,12 +1990,12 @@ export async function cancelTripHandler(req: AuthRequest, res: Response) {
       cancelFeeOverride: req.body.feeOverride !== undefined && req.body.feeOverride !== null ? String(req.body.feeOverride) : null,
       cancelFeeOverrideNote: req.body.overrideNote || null,
     } as any);
-    storage.revokeTokensForTrip(id).catch(() => {});
+    storage.revokeTokensForTrip(id).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     if (updated && !updated.billingOutcome) {
       import("../lib/clinicBillingRoutes").then(({ autoBillingClassify }) => {
-        autoBillingClassify(updated).catch(() => {});
-      }).catch(() => {});
+        autoBillingClassify(updated).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     let invoiceId: number | null = null;
@@ -2059,7 +2059,7 @@ export async function cancelTripHandler(req: AuthRequest, res: Response) {
 
     import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
       autoNotifyPatient(id, "canceled");
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     import("../lib/tripTransitionHelper").then(({ broadcastCompanyTripUpdate }) => {
       broadcastCompanyTripUpdate(trip.companyId, {
@@ -2071,7 +2071,7 @@ export async function cancelTripHandler(req: AuthRequest, res: Response) {
         cityId: trip.cityId,
         publicId: trip.publicId,
       });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     if (trip.driverId) {
       import("../lib/realtime").then(({ broadcastToDriver }) => {
@@ -2081,7 +2081,7 @@ export async function cancelTripHandler(req: AuthRequest, res: Response) {
           publicId: trip.publicId,
           ts: Date.now(),
         });
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     res.json({ ...updated, invoiceId, cancelFee: finalFee, billable: isBillable });
@@ -2818,7 +2818,7 @@ export async function patchTripPlacesHandler(req: AuthRequest, res: Response) {
       entityId: tripId,
       details: JSON.stringify(updateData),
       cityId: trip.cityId,
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     const { ensureTripRouteNonBlocking } = await import("../lib/tripRouteService");
     ensureTripRouteNonBlocking(tripId, "place_repair");

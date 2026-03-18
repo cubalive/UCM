@@ -97,7 +97,7 @@ export function startBreadcrumbFlusher(): void {
 
   if (flushTimer) return;
   flushTimer = setInterval(() => {
-    flushAll().catch(() => {});
+    flushAll().catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   }, FLUSH_INTERVAL_MS);
 
   console.log(`[BREADCRUMB-BUF] Started (interval=${FLUSH_INTERVAL_MS}ms, maxBuffer=${MAX_BUFFER_SIZE})`);
@@ -108,7 +108,7 @@ export function stopBreadcrumbFlusher(): void {
     clearInterval(flushTimer);
     flushTimer = null;
   }
-  flushAll().catch(() => {});
+  flushAll().catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 }
 
 export function getBufferStats(): { activeTrips: number; totalPoints: number } {

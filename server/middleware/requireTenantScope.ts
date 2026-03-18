@@ -117,7 +117,7 @@ function logTenantDenial(req: AuthRequest, reason: string, extra?: Record<string
         entityType: "request",
         entityId: req.path,
         payload,
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     });
   } catch {}
 }

@@ -36,6 +36,16 @@ app.get("/api/health/live", (_req, res) => {
   res.status(200).json({ status: "alive", uptime: Math.round(process.uptime()), pid: process.pid });
 });
 
+// A4 FIX: /ready endpoint returns 503 until migrations complete, then 200
+let isReady = false;
+app.get("/api/health/ready", (_req, res) => {
+  if (isReady) {
+    res.status(200).json({ status: "ready", uptime: Math.round(process.uptime()), pid: process.pid });
+  } else {
+    res.status(503).json({ status: "starting", uptime: Math.round(process.uptime()), pid: process.pid });
+  }
+});
+
 app.post("/api/metrics/web-vitals", express.json({ limit: "4kb" }), (req, res) => {
   const { name, value, rating, page } = req.body || {};
   if (name && value !== undefined) {
@@ -1209,6 +1219,10 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
 
   await registerRoutes(httpServer, app);
 
+  // S1 FIX: Register MFA routes
+  const { registerMfaRoutes } = await import("./routes/mfa.routes");
+  registerMfaRoutes(app);
+
   const { initWebSocket } = await import("./lib/realtime");
   initWebSocket(httpServer);
 
@@ -1323,6 +1337,9 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     ? Object.keys(getSchedulerStates())
     : [];
 
+  // A4 FIX: Mark as ready only after all initialization is complete
+  isReady = true;
+
   console.log(JSON.stringify({
     event: "boot_complete",
     roleMode,
@@ -1341,14 +1358,22 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     ts: new Date().toISOString(),
   }));
 
+  // I3/I4 FIX: Improved graceful shutdown with load balancer drain
   let shuttingDown = false;
   async function gracefulShutdown(signal: string) {
     if (shuttingDown) return;
     shuttingDown = true;
+
+    // Step 1: Mark as not ready (load balancer stops sending traffic)
+    isReady = false;
     console.log(JSON.stringify({ event: "shutdown_start", signal, ts: new Date().toISOString() }));
+
+    // Step 2: Wait for load balancer drain (2 seconds)
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     await stopSchedulers();
 
+    // Step 3: Close all WebSocket connections
     try {
       const { getWss } = await import("./lib/realtime");
       const wss = getWss();
@@ -1368,20 +1393,27 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
       console.log(JSON.stringify({ event: "domain_events_flushed", ts: new Date().toISOString() }));
     } catch {}
 
-    httpServer.close(() => {
-      console.log(JSON.stringify({ event: "http_server_closed", ts: new Date().toISOString() }));
+    // Step 4: Close HTTP server with 30s timeout
+    const serverClosePromise = new Promise<void>((resolve) => {
+      httpServer.close(() => {
+        console.log(JSON.stringify({ event: "http_server_closed", ts: new Date().toISOString() }));
+        resolve();
+      });
     });
+    await Promise.race([
+      serverClosePromise,
+      new Promise<void>((resolve) => setTimeout(resolve, 30_000)),
+    ]);
 
+    // Step 5: Close database pool
     try {
-      const { pool: dbPool } = await import("./db");
-      await dbPool.end();
+      const { closeDatabasePool } = await import("./db");
+      await closeDatabasePool();
       console.log(JSON.stringify({ event: "db_pool_closed", ts: new Date().toISOString() }));
     } catch {}
 
-    setTimeout(() => {
-      console.log(JSON.stringify({ event: "forced_exit", ts: new Date().toISOString() }));
-      process.exit(1);
-    }, 10_000).unref();
+    // Step 6: Exit
+    process.exit(0);
   }
 
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));

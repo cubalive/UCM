@@ -206,8 +206,8 @@ describe("Permissions UI Logic", () => {
 
     it("DRIVER sees very few nav items", () => {
       const items = getVisibleNavItems("DRIVER");
-      // trips (self), drivers (self), audit (read), time_entries (self) = 4
-      expect(items.length).toBe(4);
+      // trips (self), drivers (self), time_entries (self) = 3 (audit removed per security fix)
+      expect(items.length).toBe(3);
     });
 
     it("VIEWER sees limited nav items", () => {

@@ -311,12 +311,12 @@ function getLegacyBreaker(name: string): CircuitBreaker {
 export function recordError(name: string): void {
   const cb = getLegacyBreaker(name);
   // Simulate a failure to increment internal counter
-  cb.execute(() => Promise.reject(new Error("recorded_error"))).catch(() => {});
+  cb.execute(() => Promise.reject(new Error("recorded_error"))).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 }
 
 export function recordSuccess(name: string): void {
   const cb = getLegacyBreaker(name);
-  cb.execute(() => Promise.resolve(true)).catch(() => {});
+  cb.execute(() => Promise.resolve(true)).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 }
 
 export function isCircuitOpen(name: string): boolean {

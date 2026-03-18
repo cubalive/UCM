@@ -275,7 +275,7 @@ export async function flushToDb(): Promise<number> {
 export function startFlushTimer(): void {
   if (flushTimer) return;
   flushTimer = setInterval(() => {
-    flushToDb().catch(() => {});
+    flushToDb().catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   }, FLUSH_INTERVAL_MS);
   // Ensure the timer doesn't prevent process exit
   if (flushTimer.unref) flushTimer.unref();

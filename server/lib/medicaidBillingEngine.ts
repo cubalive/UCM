@@ -885,7 +885,7 @@ export async function autoSubmitPendingClaims(
             hcpcsCode: claim.hcpcsCode,
             serviceDate: claim.serviceDate,
             submittedAt: new Date().toISOString(),
-          }).catch(() => {});
+          }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
         } catch {}
       }
 
@@ -951,7 +951,7 @@ export async function autoSubmitPendingClaims(
               claimNumber: claim.claimNumber,
               tripId: claim.tripId,
               submittedAt: new Date().toISOString(),
-            }).catch(() => {});
+            }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
           }
         }
       } catch {}

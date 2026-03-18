@@ -827,7 +827,7 @@ function AuthenticatedApp() {
 
   if (isDriverHost) {
     const role = user.role.toUpperCase();
-    if (role !== "DRIVER") {
+    if (role !== "DRIVER" && role !== "SUPER_ADMIN") {
       return <DriverHostUnauthorized />;
     }
     return (

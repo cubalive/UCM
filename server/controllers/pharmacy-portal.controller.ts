@@ -642,7 +642,7 @@ export async function pharmacyDispatchRouteHandler(req: AuthRequest, res: Respon
       const { notifyPatientDeliveryUpdateEnhanced } = await import("../lib/pharmacyNotifications");
       const status = mode === "pharmacy_driver" ? "DRIVER_ASSIGNED" : "READY_FOR_PICKUP";
       for (const stop of route.stops) {
-        notifyPatientDeliveryUpdateEnhanced(stop.orderId, status, { etaMinutes: stop.estimatedMinutes }).catch(() => {});
+        notifyPatientDeliveryUpdateEnhanced(stop.orderId, status, { etaMinutes: stop.estimatedMinutes }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       }
     }
 
@@ -723,7 +723,7 @@ export async function driverDeliveryConfirmHandler(req: AuthRequest, res: Respon
     });
 
     const { notifyPatientDeliveryUpdateEnhanced } = await import("../lib/pharmacyNotifications");
-    notifyPatientDeliveryUpdateEnhanced(orderId, "DELIVERED").catch(() => {});
+    notifyPatientDeliveryUpdateEnhanced(orderId, "DELIVERED").catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     res.json({ success: true, order: updated });
   } catch (err: any) {
@@ -852,11 +852,11 @@ export async function dispatchAssignPharmacyDeliveryHandler(req: AuthRequest, re
 
     // Notify patient
     const { notifyPatientDeliveryUpdateEnhanced } = await import("../lib/pharmacyNotifications");
-    notifyPatientDeliveryUpdateEnhanced(orderId, "DRIVER_ASSIGNED").catch(() => {});
+    notifyPatientDeliveryUpdateEnhanced(orderId, "DRIVER_ASSIGNED").catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     // Notify driver
     const { notifyPharmacyOrderUpdate } = await import("../lib/pharmacyNotifications");
-    notifyPharmacyOrderUpdate(orderId, "DRIVER_ASSIGNED").catch(() => {});
+    notifyPharmacyOrderUpdate(orderId, "DRIVER_ASSIGNED").catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     // Broadcast to pharmacy portal via WebSocket
     if (updated.pharmacyId) {

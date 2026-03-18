@@ -77,6 +77,7 @@ export interface IStorage {
   updatePatient(id: number, data: Partial<Patient>): Promise<Patient | undefined>;
 
   getTrips(cityId?: number, limit?: number): Promise<Trip[]>;
+  getTripsPaginated(options: { cityId?: number; companyId?: number; page?: number; limit?: number }): Promise<{ data: Trip[]; total: number; page: number; limit: number; totalPages: number; hasNextPage: boolean }>;
   getTrip(id: number, companyId?: number): Promise<Trip | undefined>;
   createTrip(data: InsertTrip): Promise<Trip>;
   updateTrip(id: number, data: Partial<Trip>): Promise<Trip | undefined>;
@@ -506,6 +507,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTrips(cityId?: number, limit?: number): Promise<Trip[]> {
+    // D2 FIX: Always enforce a max limit to prevent full table scans / OOM
+    const DEFAULT_LIMIT = 50;
+    const MAX_LIMIT = 500;
+    const effectiveLimit = Math.min(limit || DEFAULT_LIMIT, MAX_LIMIT);
+
     let query = db.select().from(trips);
     if (cityId) {
       query = query.where(and(eq(trips.cityId, cityId), isNull(trips.deletedAt), isNull(trips.archivedAt))) as any;
@@ -513,10 +519,55 @@ export class DatabaseStorage implements IStorage {
       query = query.where(and(isNull(trips.deletedAt), isNull(trips.archivedAt))) as any;
     }
     query = query.orderBy(desc(trips.createdAt)) as any;
-    if (limit) {
-      query = query.limit(limit) as any;
-    }
+    query = query.limit(effectiveLimit) as any;
     return query;
+  }
+
+  async getTripsPaginated(options: {
+    cityId?: number;
+    companyId?: number;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    data: Trip[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    hasNextPage: boolean;
+  }> {
+    const DEFAULT_LIMIT = 50;
+    const MAX_LIMIT = 500;
+    const page = Math.max(1, options.page || 1);
+    const limit = Math.min(Math.max(1, options.limit || DEFAULT_LIMIT), MAX_LIMIT);
+    const offset = (page - 1) * limit;
+
+    const conditions = [isNull(trips.deletedAt), isNull(trips.archivedAt)];
+    if (options.cityId) conditions.push(eq(trips.cityId, options.cityId));
+    if (options.companyId) conditions.push(eq(trips.companyId, options.companyId));
+
+    const whereClause = and(...conditions);
+
+    // Run count and data queries in parallel
+    const [countResult, data] = await Promise.all([
+      db.select({ total: count() }).from(trips).where(whereClause),
+      db.select().from(trips).where(whereClause)
+        .orderBy(desc(trips.createdAt))
+        .limit(limit)
+        .offset(offset),
+    ]);
+
+    const total = Number(countResult[0]?.total || 0);
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages,
+      hasNextPage: page < totalPages,
+    };
   }
 
   async getTrip(id: number, companyId?: number): Promise<Trip | undefined> {

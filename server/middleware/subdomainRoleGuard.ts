@@ -9,7 +9,7 @@ import { getAppKeyForHostname, type AppKey } from "../config/apps";
 const SUBDOMAIN_ALLOWED_ROLES: Partial<Record<AppKey, string[]>> = {
   dispatch: ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "DISPATCH"],
   driver: ["SUPER_ADMIN", "DRIVER"],
-  clinic: ["SUPER_ADMIN", "CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"],
+  clinic: ["SUPER_ADMIN", "ADMIN", "COMPANY_ADMIN", "CLINIC_ADMIN", "CLINIC_USER", "CLINIC_VIEWER"],
   pharmacy: ["SUPER_ADMIN", "PHARMACY_ADMIN", "PHARMACY_USER"],
   broker: ["SUPER_ADMIN", "BROKER_ADMIN", "BROKER_USER"],
 };

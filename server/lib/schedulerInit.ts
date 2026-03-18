@@ -185,7 +185,7 @@ export async function initSchedulers(): Promise<void> {
         event: "stopping_schedulers_leader_lost",
         ts: new Date().toISOString(),
       }));
-      stopAllSchedulerLoops().catch(() => {});
+      stopAllSchedulerLoops().catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     });
 
     await startLeaderElection();

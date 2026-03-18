@@ -20,29 +20,25 @@ export async function loginHandler(req: Request, res: Response) {
     const user = await storage.getUserByEmail(normalizedEmail);
     if (!user) {
       console.log(`[AUTH] Login failed: account not found`);
-      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", details: "Unknown email attempted", cityId: null, userId: null }).catch(() => {});
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", details: "Unknown email attempted", cityId: null, userId: null }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const valid = await comparePassword(parsed.data.password, user.password);
     if (!valid) {
       console.log(`[AUTH] Login failed: password mismatch for userId=${user.id}`);
-      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Password mismatch for userId=${user.id}`, cityId: null, userId: user.id }).catch(() => {});
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Password mismatch for userId=${user.id}`, cityId: null, userId: user.id }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     if (!user.active) {
-      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Disabled account userId=${user.id}`, cityId: null, userId: user.id }).catch(() => {});
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Disabled account userId=${user.id}`, cityId: null, userId: user.id }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       return res.status(403).json({ message: "Account disabled" });
     }
 
-    // C-8: Block non-SUPER_ADMIN users with no companyId
-    if (user.role !== "SUPER_ADMIN" && !user.companyId) {
-      return res.status(403).json({
-        message: "Account configuration error: no company assigned",
-        code: "NO_COMPANY",
-      });
-    }
+    // Note: companyId checks are handled post-login by authMiddleware and tenantGuard.
+    // Login should only authenticate (verify identity), not authorize.
+    // This allows users to log in and see helpful UI messages about missing company config.
 
     // C-4: Forced MFA setup for admin roles without MFA configured
     // DISABLED: MFA setup routes and client UI are not yet implemented.
@@ -117,7 +113,7 @@ export async function loginHandler(req: Request, res: Response) {
       entityId: user.id,
       details: `User ${user.email} logged in`,
       cityId: null,
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     setAuthCookies(res, accessToken, refreshToken, req);
 
@@ -156,17 +152,16 @@ export async function loginJwtHandler(req: Request, res: Response) {
       return res.status(403).json({ message: "Account disabled" });
     }
 
-    if (user.role !== "DRIVER") {
-      return res.status(403).json({ message: "This endpoint is for driver accounts only" });
-    }
-
-    // Block driver users with no company assigned
-    if (!user.companyId) {
+    // Allow DRIVER and SUPER_ADMIN (for testing/impersonation on driver portal)
+    if (user.role !== "DRIVER" && user.role !== "SUPER_ADMIN") {
       return res.status(403).json({
-        message: "Account configuration error: no company assigned",
-        code: "NO_COMPANY",
+        message: "This portal is for driver accounts only. Please use admin.unitedcaremobility.com",
+        code: "WRONG_PORTAL",
       });
     }
+
+    // Note: companyId checks are handled post-login by authMiddleware.
+    // Login should only authenticate (verify identity), not authorize.
 
     // MFA gate for driver JWT login
     // DISABLED: MFA verification routes are not yet registered.
@@ -496,7 +491,7 @@ export async function changePasswordHandler(req: Request, res: Response) {
       details: `User ${user.email} changed their password`,
       cityId: null,
       userId,
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     const freshUser = await storage.getUser(userId);
     if (freshUser) {
@@ -783,7 +778,7 @@ export async function logoutHandler(req: Request, res: Response) {
     // Revoke the access token if present
     const accessToken = req.cookies?.ucm_access || req.cookies?.ucm_session;
     if (accessToken) {
-      await revokeToken(accessToken).catch(() => {});
+      await revokeToken(accessToken).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     clearAuthCookies(res, req);

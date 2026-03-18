@@ -112,7 +112,7 @@ export async function getThrottledEta(
   }
 
   cache.set(etaCacheKey, eta, CACHE_TTL.TRIP_ETA);
-  setJson(`trip:${tripId}:eta`, eta, 60).catch(() => {});
+  setJson(`trip:${tripId}:eta`, eta, 60).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   cache.set(calcKey, { lat: driverLoc.lat, lng: driverLoc.lng, computedAt: Date.now() }, 120_000);
 
   return eta;

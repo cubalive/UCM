@@ -84,7 +84,7 @@ export async function enqueueJob(
     entityType: "job",
     entityId: jobId,
     payload: { type, priority },
-  }).catch(() => {});
+  }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
   return jobId;
 }
@@ -151,7 +151,7 @@ export async function completeJob(
       entityType: "job",
       entityId: jobId,
       payload: { type: job[0].type },
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   }
 }
 
@@ -189,13 +189,16 @@ export async function failJob(
       })
       .where(eq(jobs.id, jobId));
 
+    // A2 FIX: Move to Dead Letter Queue after max attempts exhausted
+    await moveToDlq({ ...j, payload: (j.payload as Record<string, unknown>) || {} }, error, j.attempts);
+
     logSystemEvent({
       companyId: j.companyId,
       eventType: "job_failed",
       entityType: "job",
       entityId: jobId,
       payload: { type: j.type, error, attempts: j.attempts },
-    }).catch(() => {});
+    }).catch((err) => console.error("[JobQueue] Failed to log job failure event:", err.message));
   }
 }
 
@@ -235,6 +238,83 @@ export async function cleanupOldJobs(olderThanDays: number = 30): Promise<number
     )
     .returning();
   return result.length;
+}
+
+/**
+ * A1/A2 FIX: Dead Letter Queue — move permanently failed jobs to DLQ table.
+ * Critical jobs (billing, SMS) trigger fatal-level alerts.
+ */
+const CRITICAL_JOB_TYPES: Set<string> = new Set([
+  "invoice_generate", "billing_rollup", "email_send",
+]);
+
+export async function moveToDlq(
+  job: { id: string; type: string; companyId?: number | null; payload?: Record<string, unknown> },
+  error: string,
+  attempts: number,
+): Promise<void> {
+  try {
+    // Insert into dead_letter_queue table
+    await db.execute(sql`
+      INSERT INTO dead_letter_queue (job_id, job_type, queue_name, payload, error_message, attempt_count, failed_at, status, retryable)
+      VALUES (${job.id}, ${job.type}, ${"default"}, ${JSON.stringify(job.payload || {})}::jsonb, ${error.slice(0, 2000)}, ${attempts}, NOW(), ${"failed"}, ${true})
+      ON CONFLICT (job_id) DO NOTHING
+    `);
+
+    // Alert on critical job failures
+    if (CRITICAL_JOB_TYPES.has(job.type)) {
+      console.error(JSON.stringify({
+        level: "fatal",
+        event: "critical_job_dlq",
+        jobId: job.id,
+        jobType: job.type,
+        companyId: job.companyId,
+        error: error.slice(0, 500),
+        attempts,
+        ts: new Date().toISOString(),
+      }));
+    }
+
+    logSystemEvent({
+      companyId: job.companyId ?? null,
+      eventType: "job_moved_to_dlq",
+      entityType: "job",
+      entityId: job.id,
+      payload: { type: job.type, error: error.slice(0, 500), attempts },
+    }).catch((err) => console.error("[DLQ] Failed to log DLQ event:", err.message));
+  } catch (dlqErr: any) {
+    console.error("[DLQ] Failed to insert into DLQ:", dlqErr.message, "jobId:", job.id);
+  }
+}
+
+/**
+ * Retry a job from the Dead Letter Queue.
+ */
+export async function retryDlqJob(dlqId: number, operatorId: number): Promise<string | null> {
+  try {
+    const [dlqEntry] = await db.execute(sql`
+      SELECT job_id, job_type, payload FROM dead_letter_queue WHERE id = ${dlqId} AND status = 'failed'
+    `) as any;
+
+    if (!dlqEntry) return null;
+
+    // Re-enqueue the job
+    const newJobId = await enqueueJob(
+      dlqEntry.job_type as JobType,
+      typeof dlqEntry.payload === "string" ? JSON.parse(dlqEntry.payload) : dlqEntry.payload,
+      { maxAttempts: 3 },
+    );
+
+    // Mark DLQ entry as retried
+    await db.execute(sql`
+      UPDATE dead_letter_queue SET status = 'retried', retried_at = NOW(), retried_by = ${operatorId} WHERE id = ${dlqId}
+    `);
+
+    return newJobId;
+  } catch (err: any) {
+    console.error("[DLQ] Retry failed:", err.message);
+    return null;
+  }
 }
 
 export async function getQueueStats(): Promise<{

@@ -27,7 +27,7 @@ import {
 // ── Constants matching server/auth.ts ──
 
 const JWT_SECRET = "fallback-secret-dev-only";
-const REFRESH_SECRET = JWT_SECRET + "-refresh";
+const REFRESH_SECRET = JWT_SECRET + "-refresh-dev-only";
 
 // ── Inline helpers for sanitization + rate limit testing ──
 
@@ -371,11 +371,13 @@ describe("Permission Functions (RBAC)", () => {
       }
     });
 
-    it("DISPATCH should have read-only on clinics, invoices, audit, payroll, broker_marketplace, pharmacy_orders", () => {
-      for (const r of ["clinics", "invoices", "audit", "payroll", "broker_marketplace", "pharmacy_orders"] as Resource[]) {
+    it("DISPATCH should have read-only on clinics, invoices, payroll, broker_marketplace, pharmacy_orders (not audit)", () => {
+      for (const r of ["clinics", "invoices", "payroll", "broker_marketplace", "pharmacy_orders"] as Resource[]) {
         expect(can("DISPATCH", r, "read")).toBe(true);
         expect(can("DISPATCH", r, "write")).toBe(false);
       }
+      // Security fix: DISPATCH no longer has audit:read
+      expect(can("DISPATCH", "audit", "read")).toBe(false);
     });
 
     it("DISPATCH should have no access to cities, users, broker_contracts, broker_settlements", () => {
@@ -392,8 +394,8 @@ describe("Permission Functions (RBAC)", () => {
       expect(can("DRIVER", "time_entries", "self")).toBe(true);
     });
 
-    it("DRIVER should have read on audit only", () => {
-      expect(can("DRIVER", "audit", "read")).toBe(true);
+    it("DRIVER should NOT have read on audit (security fix)", () => {
+      expect(can("DRIVER", "audit", "read")).toBe(false);
       expect(can("DRIVER", "audit", "write")).toBe(false);
     });
 
@@ -568,13 +570,13 @@ describe("Permission Functions (RBAC)", () => {
       expect(items).not.toContain("broker_settlements");
     });
 
-    it("should return very few items for DRIVER (trips, drivers, time_entries, audit)", () => {
+    it("should return very few items for DRIVER (trips, drivers, time_entries — no audit)", () => {
       const items = getVisibleNavItems("DRIVER");
       expect(items).toContain("trips");
       expect(items).toContain("drivers");
       expect(items).toContain("time_entries");
-      expect(items).toContain("audit");
-      expect(items.length).toBe(4);
+      expect(items).not.toContain("audit"); // Security fix: DRIVER no longer has audit access
+      expect(items.length).toBe(3);
     });
 
     it("should return empty array for unknown role", () => {

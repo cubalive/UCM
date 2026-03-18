@@ -25,7 +25,7 @@ async function processJob(job: any): Promise<void> {
     entityType: "job",
     entityId: job.id,
     payload: { type: job.type, attempt: job.attempts },
-  }).catch(() => {});
+  }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
   try {
     let result: Record<string, unknown>;
@@ -146,7 +146,7 @@ async function processJob(job: any): Promise<void> {
       entityType: "job",
       entityId: job.id,
       payload: { type: job.type, result },
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   } catch (err: any) {
     console.error(`[WORKER] Job ${job.id} failed: ${err.message}`);
     await failJob(job.id, err.message);
@@ -157,7 +157,7 @@ async function processJob(job: any): Promise<void> {
       entityType: "job",
       entityId: job.id,
       payload: { type: job.type, error: err.message, attempt: job.attempts },
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   }
 }
 
@@ -171,7 +171,7 @@ async function workerLoop(): Promise<void> {
   while (running) {
     try {
       if (Date.now() - heartbeatAt > HEARTBEAT_INTERVAL) {
-        await setWorkerHeartbeat().catch(() => {});
+        await setWorkerHeartbeat().catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
         heartbeatAt = Date.now();
       }
 

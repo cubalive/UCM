@@ -157,7 +157,7 @@ export function registerBrokerApiV1Routes(app: Express) {
           publicId: tripRequest.publicId,
           status: "OPEN",
           previousStatus: null,
-        }).catch(() => {});
+        }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
         return res.status(201).json({
           id: tripRequest.id,
@@ -433,7 +433,7 @@ export function registerBrokerApiV1Routes(app: Express) {
           status: "CANCELLED",
           previousStatus: existing.status,
           reason,
-        }).catch(() => {});
+        }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
         return res.json({
           id: cancelled.id,

@@ -83,7 +83,7 @@ function useGoogleMapsApiKey() {
       return res.json();
     },
     enabled: !!token,
-    staleTime: Infinity,
+    staleTime: 30 * 60 * 1000, // 30 minutes — static config data
     retry: 1,
   });
 }

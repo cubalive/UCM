@@ -195,7 +195,7 @@ function processSinglePoint(
   const entry: CachedDriverLocation = { driverId, lat, lng, timestamp, heading, speed };
   cache.set(locKey, entry, CACHE_TTL.DRIVER_LOCATION);
   cache.set(rateKey, now, CACHE_TTL.DRIVER_RATE_LIMIT);
-  setJson(`driver:${driverId}:last_location`, entry, 120).catch(() => {});
+  setJson(`driver:${driverId}:last_location`, entry, 120).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   recordAccepted();
 
   return { accepted: true };
@@ -248,7 +248,7 @@ function processBatchPoints(
       speed: latestAccepted.speed,
     };
     cache.set(locKey, entry, CACHE_TTL.DRIVER_LOCATION);
-    setJson(`driver:${driverId}:last_location`, entry, 120).catch(() => {});
+    setJson(`driver:${driverId}:last_location`, entry, 120).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     const rateKey = cacheKeys("driver_rate", driverId);
     cache.set(rateKey, now, CACHE_TTL.DRIVER_RATE_LIMIT);
   }
@@ -367,7 +367,7 @@ function flushCoalesceEntry(tripId: number): void {
   broadcastTripSupabaseThrottled(tripId, {
     type: "driver_location",
     data: { driverId: entry.driverId, lat: entry.lat, lng: entry.lng, ts, seq },
-  }).catch(() => {});
+  }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 }
 
 function coalesceAndPublish(tripId: number, driverId: number, lat: number, lng: number): void {
@@ -386,7 +386,7 @@ async function broadcastDriverLocation(driverId: number, lat: number, lng: numbe
       const tripLocKey = cacheKeys("trip_driver_last", trip.id);
       const locData = { driverId, lat, lng, timestamp: Date.now() };
       cache.set(tripLocKey, locData, CACHE_TTL.TRIP_DRIVER_LAST);
-      setJson(`trip:${trip.id}:driver_location`, locData, 120).catch(() => {});
+      setJson(`trip:${trip.id}:driver_location`, locData, 120).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
       const allowed = await shouldPublishLocationRedis(trip.id);
       if (!allowed) continue;
@@ -404,16 +404,16 @@ async function broadcastDriverLocation(driverId: number, lat: number, lng: numbe
           lng,
           ts: Date.now(),
         });
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     import("./geofenceEvaluator").then(({ evaluateGeofence }) => {
       evaluateGeofence(driverId, lat, lng);
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     import("./rerouteDetector").then(({ evaluateReroute }) => {
       evaluateReroute(driverId, lat, lng);
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   } catch (err: any) {
     console.warn(`[LOCATION-INGEST] Broadcast error for driver ${driverId}: ${err.message}`);
   }
@@ -593,8 +593,8 @@ export function registerDriverLocationRoutes(app: Express): void {
                   addBreadcrumb(trip.id, pt.lat, pt.lng, pt.timestamp);
                 }
               }
-            }).catch(() => {});
-          }).catch(() => {});
+            }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
+          }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
         }
 
         const accepted = results.filter(r => r.accepted).length;
