@@ -374,6 +374,7 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
     workerHealthServer.listen(port, "0.0.0.0", () => {
       console.log(JSON.stringify({ event: "worker_early_healthcheck", port, ts: new Date().toISOString() }));
     });
+    (globalThis as any).__workerHealthServer = workerHealthServer;
   } else {
     httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
       console.log(JSON.stringify({ event: "http_listening", port, ts: new Date().toISOString() }));
@@ -1094,7 +1095,10 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
       if (shuttingDown) return;
       shuttingDown = true;
       console.log(JSON.stringify({ event: "shutdown_start", signal, roleMode: "worker", ts: new Date().toISOString() }));
-      workerHttp.close();
+      // Close the early healthcheck server if it exists
+      if ((globalThis as any).__workerHealthServer) {
+        (globalThis as any).__workerHealthServer.close();
+      }
       await stopSchedulers();
       try {
         const { pool: dbPool } = await import("./db");
