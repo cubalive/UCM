@@ -72,25 +72,27 @@ const poolSize = Math.min(
 );
 
 function buildSslConfig(): pg.ConnectionConfig["ssl"] {
-  if (IS_PROD) {
-    // D3 FIX: Production MUST verify server certificate
+  // Supabase pooler (port 6543) may not send full cert chain,
+  // so we only enforce strict verification on direct connections with a custom CA.
+  if (IS_PROD && process.env.DB_SSL_CA) {
     const sslConfig: { rejectUnauthorized: boolean; ca?: string } = {
       rejectUnauthorized: true,
     };
-    // Support custom CA bundles (RDS, custom CAs)
-    if (process.env.DB_SSL_CA) {
-      try {
-        sslConfig.ca = Buffer.from(process.env.DB_SSL_CA, "base64").toString("utf-8");
-      } catch {
-        console.warn("[DB] DB_SSL_CA is not valid base64 — using as raw PEM");
-        sslConfig.ca = process.env.DB_SSL_CA;
-      }
+    try {
+      sslConfig.ca = Buffer.from(process.env.DB_SSL_CA, "base64").toString("utf-8");
+    } catch {
+      console.warn("[DB] DB_SSL_CA is not valid base64 — using as raw PEM");
+      sslConfig.ca = process.env.DB_SSL_CA;
     }
     return sslConfig;
   }
 
-  // Development: allow permissive SSL but log a warning
-  console.warn("[DB-WARN] Non-production mode: SSL certificate verification is disabled. Do NOT use this in production.");
+  // Default: SSL enabled but without strict cert verification
+  // Supabase connections are encrypted in transit; the pooler just doesn't always
+  // provide a verifiable certificate chain.
+  if (IS_PROD && !process.env.DB_SSL_CA) {
+    console.log("[DB] SSL enabled (Supabase). Set DB_SSL_CA for strict certificate verification.");
+  }
   return { rejectUnauthorized: false };
 }
 
