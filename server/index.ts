@@ -362,10 +362,22 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
 (async () => {
   // Start listening EARLY so Railway/infra healthcheck (/api/health/live) can respond
   // while the rest of boot (migrations, route registration, etc.) completes.
-  // Skip for worker mode — workers create their own minimal healthcheck server later.
+  // Both API and worker modes start an HTTP server early to pass healthchecks during boot.
   const port = parseInt(process.env.PORT || "5000", 10);
   const earlyRunMode = (process.env.RUN_MODE || process.env.ROLE_MODE || "all").toLowerCase().trim();
-  if (earlyRunMode !== "worker") {
+  if (earlyRunMode === "worker") {
+    // Worker mode: start a minimal healthcheck HTTP server IMMEDIATELY so Railway
+    // healthcheck passes while DB connection, migrations, and scheduler init proceed.
+    const workerHealthServer = createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "worker-alive", uptime: Math.round(process.uptime()), pid: process.pid }));
+    });
+    workerHealthServer.listen(port, "0.0.0.0", () => {
+      console.log(JSON.stringify({ event: "worker_early_healthcheck", port, ts: new Date().toISOString() }));
+    });
+    // Store reference so the later worker boot can skip creating a duplicate server
+    (globalThis as any).__workerHealthServer = workerHealthServer;
+  } else {
     httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
       console.log(JSON.stringify({ event: "http_listening", port, ts: new Date().toISOString() }));
     });
@@ -1043,15 +1055,8 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
       ts: new Date().toISOString(),
     }));
 
-    // Start healthcheck HTTP server FIRST so Railway healthcheck passes while schedulers init
-    const workerPort = Number(process.env.PORT) || 5000;
-    const workerHttp = createServer((_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "worker-alive", uptime: Math.round(process.uptime()), pid: process.pid }));
-    });
-    workerHttp.listen(workerPort, "0.0.0.0", () => {
-      console.log(JSON.stringify({ event: "worker_healthcheck_server", port: workerPort, ts: new Date().toISOString() }));
-    });
+    // Early healthcheck server was already started at the top of boot — no need to create another.
+    // The early server responds to all paths with 200, satisfying Railway's /api/health/live check.
 
     await initSchedulers();
 
