@@ -362,10 +362,19 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
 (async () => {
   // Start listening EARLY so Railway/infra healthcheck (/api/health/live) can respond
   // while the rest of boot (migrations, route registration, etc.) completes.
-  // Worker mode skips this — the worker is an unexposed Railway service with no HTTP healthcheck.
   const port = parseInt(process.env.PORT || "5000", 10);
   const earlyRunMode = (process.env.RUN_MODE || process.env.ROLE_MODE || "all").toLowerCase().trim();
-  if (earlyRunMode !== "worker") {
+  if (earlyRunMode === "worker") {
+    // Worker mode: start a minimal HTTP server immediately so Railway's healthcheck
+    // passes while DB connection, migrations, and scheduler init proceed.
+    const workerHealthServer = createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "worker-alive", uptime: Math.round(process.uptime()), pid: process.pid }));
+    });
+    workerHealthServer.listen(port, "0.0.0.0", () => {
+      console.log(JSON.stringify({ event: "worker_early_healthcheck", port, ts: new Date().toISOString() }));
+    });
+  } else {
     httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
       console.log(JSON.stringify({ event: "http_listening", port, ts: new Date().toISOString() }));
     });
@@ -1043,8 +1052,7 @@ border-top-color:#3b82f6;border-radius:50%;animation:spin 1s linear infinite;mar
       ts: new Date().toISOString(),
     }));
 
-    // No HTTP healthcheck server needed — ucm-worker is an unexposed Railway service.
-    // Railway skips healthchecks for services without healthcheckPath in the config.
+    // Early healthcheck server already started at top of boot — responds to all paths with 200.
 
     await initSchedulers();
 
