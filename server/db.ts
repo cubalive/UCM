@@ -118,14 +118,24 @@ async function verifyDatabaseConnection(): Promise<void> {
   const redacted = sanitizeHost(host);
   try {
     const client = await pool.connect();
-    // Verify SSL is active
-    const sslResult = await client.query("SELECT ssl_is_used()");
-    const sslActive = sslResult.rows[0]?.ssl_is_used ?? false;
+    // Verify basic connectivity
     await client.query("SELECT 1");
+    // ssl_is_used() is not available through PgBouncer (Supabase pooler port 6543),
+    // so wrap it in its own try/catch to avoid crashing the entire boot.
+    let sslActive: boolean | null = null;
+    if (!isPooler) {
+      try {
+        const sslResult = await client.query("SELECT ssl_is_used()");
+        sslActive = sslResult.rows[0]?.ssl_is_used ?? false;
+      } catch {
+        // Direct connection that doesn't support ssl_is_used — not fatal
+      }
+    }
     client.release();
     console.log(`[DB] Connected — source: ${envSource}`);
-    console.log(`[DB] Host: ${redacted}, port: ${port}, ssl: ${sslActive}, pooler: ${isPooler}, pool_size: ${poolSize}, replicas: ${RAILWAY_REPLICA_COUNT}`);
-    if (!sslActive && IS_PROD) {
+    const sslDisplay = sslActive === null ? "unknown (pooler)" : sslActive;
+    console.log(`[DB] Host: ${redacted}, port: ${port}, ssl: ${sslDisplay}, pooler: ${isPooler}, pool_size: ${poolSize}, replicas: ${RAILWAY_REPLICA_COUNT}`);
+    if (sslActive === false && IS_PROD) {
       console.error("[DB-WARN] SSL is NOT active on the database connection in production!");
     }
   } catch (err: any) {
