@@ -52,9 +52,12 @@ if (isPooler) {
 }
 
 let finalConnStr = parsedUrl.toString();
-if (finalConnStr.includes("sslmode=require")) {
-  finalConnStr = finalConnStr.replace(/[?&]sslmode=require/g, "").replace(/\?$/, "");
-}
+// Strip ALL sslmode parameters from the connection string — we manage SSL
+// via the `ssl` option in pg.Pool, and leaving sslmode=verify-full (which
+// Supabase now includes by default) causes node-postgres to override our
+// rejectUnauthorized setting, resulting in "self-signed certificate in
+// certificate chain" errors.
+finalConnStr = finalConnStr.replace(/[?&]sslmode=[^&]*/g, "").replace(/\?$/, "").replace(/\?&/, "?");
 
 function sanitizeHost(h: string): string {
   if (h.length <= 14) return h;
