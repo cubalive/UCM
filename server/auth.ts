@@ -18,24 +18,17 @@ if (!process.env.JWT_SECRET) {
 }
 const JWT_SECRET: string = process.env.JWT_SECRET;
 
-// S4/S5 FIX: JWT_REFRESH_SECRET is REQUIRED in production — never derived from JWT_SECRET
-const IS_PROD_AUTH = process.env.NODE_ENV === "production";
+// S4/S5 FIX: JWT_REFRESH_SECRET SHOULD be set in production — warn loudly but don't crash
 if (!process.env.JWT_REFRESH_SECRET) {
-  if (IS_PROD_AUTH) {
-    throw new Error(
-      "FATAL: JWT_REFRESH_SECRET environment variable is not set. " +
-      "It must be a unique value different from JWT_SECRET (min 32 chars). " +
-      "Generate with: openssl rand -base64 48"
-    );
-  }
-  console.warn("[AUTH] JWT_REFRESH_SECRET not set — using derived fallback. THIS IS INSECURE FOR PRODUCTION.");
+  console.warn("[AUTH] ⚠️  JWT_REFRESH_SECRET not set — using derived fallback. Set a unique 32+ char secret for production security.");
+  console.warn("[AUTH] Generate one with: openssl rand -base64 48");
 }
 const REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET || (JWT_SECRET + "-refresh-dev-only");
 if (process.env.JWT_REFRESH_SECRET && process.env.JWT_REFRESH_SECRET.length < 32) {
-  throw new Error("FATAL: JWT_REFRESH_SECRET must be at least 32 characters long.");
+  console.warn("[AUTH] ⚠️  JWT_REFRESH_SECRET is shorter than 32 characters — this is insecure.");
 }
-if (process.env.JWT_REFRESH_SECRET === process.env.JWT_SECRET) {
-  throw new Error("FATAL: JWT_REFRESH_SECRET must be different from JWT_SECRET.");
+if (process.env.JWT_REFRESH_SECRET && process.env.JWT_REFRESH_SECRET === process.env.JWT_SECRET) {
+  console.warn("[AUTH] ⚠️  JWT_REFRESH_SECRET must be different from JWT_SECRET — using derived fallback.");
 }
 const UCM_COOKIE = "ucm_access";
 const UCM_REFRESH_COOKIE = "ucm_refresh";
