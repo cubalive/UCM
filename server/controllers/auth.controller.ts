@@ -20,19 +20,19 @@ export async function loginHandler(req: Request, res: Response) {
     const user = await storage.getUserByEmail(normalizedEmail);
     if (!user) {
       console.log(`[AUTH] Login failed: account not found`);
-      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", details: "Unknown email attempted", cityId: null, userId: null }).catch(() => {});
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", details: "Unknown email attempted", cityId: null, userId: null }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const valid = await comparePassword(parsed.data.password, user.password);
     if (!valid) {
       console.log(`[AUTH] Login failed: password mismatch for userId=${user.id}`);
-      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Password mismatch for userId=${user.id}`, cityId: null, userId: user.id }).catch(() => {});
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Password mismatch for userId=${user.id}`, cityId: null, userId: user.id }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     if (!user.active) {
-      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Disabled account userId=${user.id}`, cityId: null, userId: user.id }).catch(() => {});
+      storage.createAuditLog({ action: "LOGIN_FAILED", entity: "user", entityId: user.id, details: `Disabled account userId=${user.id}`, cityId: null, userId: user.id }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       return res.status(403).json({ message: "Account disabled" });
     }
 
@@ -113,7 +113,7 @@ export async function loginHandler(req: Request, res: Response) {
       entityId: user.id,
       details: `User ${user.email} logged in`,
       cityId: null,
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     setAuthCookies(res, accessToken, refreshToken, req);
 
@@ -491,7 +491,7 @@ export async function changePasswordHandler(req: Request, res: Response) {
       details: `User ${user.email} changed their password`,
       cityId: null,
       userId,
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     const freshUser = await storage.getUser(userId);
     if (freshUser) {
@@ -778,7 +778,7 @@ export async function logoutHandler(req: Request, res: Response) {
     // Revoke the access token if present
     const accessToken = req.cookies?.ucm_access || req.cookies?.ucm_session;
     if (accessToken) {
-      await revokeToken(accessToken).catch(() => {});
+      await revokeToken(accessToken).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
     }
 
     clearAuthCookies(res, req);

@@ -98,7 +98,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     invoices: ["read"],
     cities: [],
     users: [],
-    audit: ["read"],
+    audit: [], // RBAC FIX: DISPATCH should not have audit:read — audit is for admins only
     time_entries: ["read", "write"],
     payroll: ["read"],
     billing: ["read", "write"],
@@ -119,7 +119,7 @@ const ROLE_PERMISSIONS: Record<AppRole, Record<Resource, Permission[]>> = {
     invoices: [],
     cities: [],
     users: [],
-    audit: ["read"],
+    audit: [], // RBAC FIX: Drivers should not have audit:read access
     time_entries: ["self"],
     payroll: [],
     billing: [],

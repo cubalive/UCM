@@ -39,7 +39,7 @@ export function idempotencyMiddleware(req: AuthRequest, res: Response, next: Nex
             statusCode,
             body,
             createdAt: Date.now(),
-          }, IDEMPOTENCY_TTL).catch(() => {});
+          }, IDEMPOTENCY_TTL).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
         }
         return originalJson(body);
       };

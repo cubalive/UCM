@@ -234,5 +234,61 @@ export const passwordRateLimiter = rateLimiter({
   },
 });
 
+// S6 FIX: Additional limiters for specific endpoint categories
+
+/** Login: 20 requests / 15 min per IP (brute-force protection) */
+export const loginRateLimiter = rateLimiter({
+  max: 20,
+  windowMs: 15 * 60_000,
+  blockDurationMs: 15 * 60_000,
+  keyFn: (req) => `login:${getClientIp(req)}`,
+});
+
+/** Impersonation: 100 requests / 1 hour per IP+userId */
+export const impersonationRateLimiter = rateLimiter({
+  max: 100,
+  windowMs: 60 * 60_000,
+  keyFn: (req) => {
+    const user = (req as AuthRequest).user;
+    return `impersonate:${getClientIp(req)}:${user?.userId || "anon"}`;
+  },
+});
+
+/** MFA challenge: 10 requests / 1 min per IP */
+export const mfaRateLimiter = rateLimiter({
+  max: 10,
+  windowMs: 60_000,
+  blockDurationMs: 2 * 60_000,
+  keyFn: (req) => `mfa:${getClientIp(req)}`,
+});
+
+/** Billing operations: 30 requests / 1 min per user */
+export const billingRateLimiter = rateLimiter({
+  max: 30,
+  windowMs: 60_000,
+  keyFn: (req) => {
+    const user = (req as AuthRequest).user;
+    return `billing:${user?.userId || getClientIp(req)}`;
+  },
+});
+
+/** DELETE operations: 20 requests / 1 min per user */
+export const deleteRateLimiter = rateLimiter({
+  max: 20,
+  windowMs: 60_000,
+  keyFn: (req) => {
+    const user = (req as AuthRequest).user;
+    return `delete:${user?.userId || getClientIp(req)}`;
+  },
+});
+
+/** Password reset: 5 requests / 1 hour per IP */
+export const passwordResetRateLimiter = rateLimiter({
+  max: 5,
+  windowMs: 60 * 60_000,
+  blockDurationMs: 60 * 60_000,
+  keyFn: (req) => `pwreset:${getClientIp(req)}`,
+});
+
 // Export for testing
 export { getClientIp, memWindows as _testWindows };

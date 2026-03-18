@@ -61,35 +61,81 @@ function sanitizeHost(h: string): string {
   return h.replace(/^(.{6}).*(.{6})$/, "$1***$2");
 }
 
+// D3 FIX: Production requires strict SSL; development allows permissive with warning
+// D6 FIX: Pool size scales with replica count
+const IS_PROD = process.env.NODE_ENV === "production";
+const DB_POOL_GLOBAL_MAX = parseInt(process.env.DB_POOL_GLOBAL_MAX || "80", 10);
+const RAILWAY_REPLICA_COUNT = parseInt(process.env.RAILWAY_REPLICA_COUNT || "1", 10);
+const poolSize = Math.min(
+  Math.floor((DB_POOL_GLOBAL_MAX - 10) / RAILWAY_REPLICA_COUNT),
+  25
+);
+
+function buildSslConfig(): pg.ConnectionConfig["ssl"] {
+  if (IS_PROD) {
+    // D3 FIX: Production MUST verify server certificate
+    const sslConfig: { rejectUnauthorized: boolean; ca?: string } = {
+      rejectUnauthorized: true,
+    };
+    // Support custom CA bundles (RDS, custom CAs)
+    if (process.env.DB_SSL_CA) {
+      try {
+        sslConfig.ca = Buffer.from(process.env.DB_SSL_CA, "base64").toString("utf-8");
+      } catch {
+        console.warn("[DB] DB_SSL_CA is not valid base64 — using as raw PEM");
+        sslConfig.ca = process.env.DB_SSL_CA;
+      }
+    }
+    return sslConfig;
+  }
+
+  // Development: allow permissive SSL but log a warning
+  console.warn("[DB-WARN] Non-production mode: SSL certificate verification is disabled. Do NOT use this in production.");
+  return { rejectUnauthorized: false };
+}
+
 const pool = new pg.Pool({
   connectionString: finalConnStr,
-  max: parseInt(process.env.DB_POOL_MAX || "20", 10),
+  max: poolSize,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
-  ssl: { rejectUnauthorized: false },
+  statement_timeout: 30_000,
+  ssl: buildSslConfig(),
 });
 
 const db = drizzle(pool, { schema });
 
-const dbReady = (async () => {
+/**
+ * Verify the database connection is healthy and SSL is active.
+ */
+async function verifyDatabaseConnection(): Promise<void> {
   if (process.env.NODE_ENV === "test") return;
   const redacted = sanitizeHost(host);
   try {
     const client = await pool.connect();
+    // Verify SSL is active
+    const sslResult = await client.query("SELECT ssl_is_used()");
+    const sslActive = sslResult.rows[0]?.ssl_is_used ?? false;
     await client.query("SELECT 1");
     client.release();
     console.log(`[DB] Connected — source: ${envSource}`);
-    console.log(`[DB] Host: ${redacted}, port: ${port}, ssl: true, pooler: ${isPooler}`);
+    console.log(`[DB] Host: ${redacted}, port: ${port}, ssl: ${sslActive}, pooler: ${isPooler}, pool_size: ${poolSize}, replicas: ${RAILWAY_REPLICA_COUNT}`);
+    if (!sslActive && IS_PROD) {
+      console.error("[DB-WARN] SSL is NOT active on the database connection in production!");
+    }
   } catch (err: any) {
     console.error(`[DB-FATAL] Cannot connect to PostgreSQL at ${redacted}:${port}`);
     console.error(`[DB-FATAL] Error: ${err.message}`);
     console.error(`[DB-FATAL] Check that ${envSource} has the correct password and the Supabase project is active.`);
     process.exit(1);
   }
-})();
+}
+
+const dbReady = verifyDatabaseConnection();
 
 function getDbSource(): string { return envSource; }
 function getDbHost(): string { return host; }
 function getDbPort(): number { return port; }
+function closeDatabasePool(): Promise<void> { return pool.end(); }
 
-export { pool, db, dbReady, getDbSource, getDbHost, getDbPort };
+export { pool, db, dbReady, getDbSource, getDbHost, getDbPort, verifyDatabaseConnection, closeDatabasePool };

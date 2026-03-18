@@ -64,7 +64,7 @@ export async function setDefaultPaymentMethod(clinicId: number, paymentMethodId:
   const stripe = getStripe();
   await stripe.paymentMethods.attach(paymentMethodId, {
     customer: clinic.stripeCustomerId,
-  }).catch(() => {});
+  }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
   await stripe.customers.update(clinic.stripeCustomerId, {
     invoice_settings: { default_payment_method: paymentMethodId },

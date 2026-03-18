@@ -507,7 +507,7 @@ export async function handleDriverLocationIngest(req: AuthRequest, res: any) {
 
       import("../lib/supabaseRealtime").then(({ broadcastTripSupabaseThrottled }) => {
         broadcastTripSupabaseThrottled(trip.id, { type: "driver_location", data: { driverId: user.driverId, lat, lng, ts: Date.now() } });
-      }).catch(() => {});
+      }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
       if (ACTIVE_GPS_STATUSES.includes(trip.status)) {
         db.insert(tripLocationPoints).values({
@@ -901,17 +901,17 @@ export async function postDriverOfferAcceptHandler(req: AuthRequest, res: Respon
 
     import("../lib/realtime").then(({ broadcastToTrip }) => {
       broadcastToTrip(offer.tripId, { type: "status_change", data: { status: "ASSIGNED", tripId: offer.tripId } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     import("../lib/supabaseRealtime").then(({ broadcastTripSupabase }) => {
       broadcastTripSupabase(offer.tripId, { type: "status_change", data: { status: "ASSIGNED", tripId: offer.tripId } });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     const smsBaseUrl = process.env.PUBLIC_BASE_URL_APP
       || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://app.unitedcaremobility.com");
     import("../lib/dispatchAutoSms").then(({ autoNotifyPatient }) => {
       autoNotifyPatient(offer.tripId, "driver_assigned", { base_url: smsBaseUrl });
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     await storage.createAuditLog({
       userId: req.user!.userId,
@@ -1228,7 +1228,7 @@ export async function postDriverSwapCreateHandler(req: AuthRequest, res: Respons
       cityId: requesterDriver.cityId,
     });
 
-    sendSwapEmail(targetDriverId, `${targetDriver.firstName}`, `${requesterDriver.firstName} ${requesterDriver.lastName}`, swap, "CREATED").catch(() => {});
+    sendSwapEmail(targetDriverId, `${targetDriver.firstName}`, `${requesterDriver.firstName} ${requesterDriver.lastName}`, swap, "CREATED").catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     res.status(201).json(swap);
   } catch (err: any) {
@@ -1324,7 +1324,7 @@ export async function postDriverSwapCancelHandler(req: AuthRequest, res: Respons
     });
 
     const requesterDriver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
-    sendSwapEmail(existing.targetDriverId, "", `${requesterDriver?.firstName || "A driver"} ${requesterDriver?.lastName || ""}`, updated, "CANCELLED").catch(() => {});
+    sendSwapEmail(existing.targetDriverId, "", `${requesterDriver?.firstName || "A driver"} ${requesterDriver?.lastName || ""}`, updated, "CANCELLED").catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     res.json(updated);
   } catch (err: any) {
@@ -1372,7 +1372,7 @@ export async function postDriverSwapDecideHandler(req: AuthRequest, res: Respons
 
     const targetDriver = await db.select().from(drivers).where(eq(drivers.id, user.driverId)).then(r => r[0]);
     const stage = parsed.data.decision === "ACCEPT" ? "ACCEPTED" : "DECLINED";
-    sendSwapEmail(existing.requesterDriverId, "", `${targetDriver?.firstName || ""} ${targetDriver?.lastName || ""}`, updated, stage).catch(() => {});
+    sendSwapEmail(existing.requesterDriverId, "", `${targetDriver?.firstName || ""} ${targetDriver?.lastName || ""}`, updated, stage).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     res.json(updated);
   } catch (err: any) {
@@ -1468,8 +1468,8 @@ export async function postDispatchSwapDecideHandler(req: AuthRequest, res: Respo
     const requesterDriver = await db.select().from(drivers).where(eq(drivers.id, existing.requesterDriverId)).then(r => r[0]);
     const targetDriver = await db.select().from(drivers).where(eq(drivers.id, existing.targetDriverId)).then(r => r[0]);
     const stage = parsed.data.decision === "APPROVE" ? "APPROVED_DISPATCH" : "REJECTED_DISPATCH";
-    if (requesterDriver) sendSwapEmail(existing.requesterDriverId, requesterDriver.firstName, targetDriver?.firstName || "another driver", updated, stage).catch(() => {});
-    if (targetDriver) sendSwapEmail(existing.targetDriverId, targetDriver.firstName, requesterDriver?.firstName || "another driver", updated, stage).catch(() => {});
+    if (requesterDriver) sendSwapEmail(existing.requesterDriverId, requesterDriver.firstName, targetDriver?.firstName || "another driver", updated, stage).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
+    if (targetDriver) sendSwapEmail(existing.targetDriverId, targetDriver.firstName, requesterDriver?.firstName || "another driver", updated, stage).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     res.json(updated);
   } catch (err: any) {
@@ -1935,7 +1935,7 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
                 entityId: tripId,
                 details: JSON.stringify({ status: newStatus, distanceMeters: Math.round(dist), normalRadius: PICKUP_RADIUS, fallbackRadius: MANUAL_FALLBACK_RADIUS }),
                 cityId: trip.cityId,
-              }).catch(() => {});
+              }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
             }
           }
           if (newStatus === "ARRIVED_DROPOFF" && trip.dropoffLat && trip.dropoffLng) {
@@ -1953,7 +1953,7 @@ export async function postDriverTripStatusHandler(req: AuthRequest, res: Respons
                 entityId: tripId,
                 details: JSON.stringify({ status: newStatus, distanceMeters: Math.round(dist), normalRadius: DROPOFF_RADIUS, fallbackRadius: MANUAL_FALLBACK_RADIUS }),
                 cityId: trip.cityId,
-              }).catch(() => {});
+              }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
             }
           }
         } else {
@@ -2084,7 +2084,7 @@ export async function extendWaitingHandler(req: AuthRequest, res: Response) {
       entityId: tripId,
       details: JSON.stringify({ extendCount: newExtendCount, newWaitMinutes, reason: req.body.reason || null }),
       cityId: trip.cityId,
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     const timelineEntry = {
       ts: new Date().toISOString(),
@@ -2097,7 +2097,7 @@ export async function extendWaitingHandler(req: AuthRequest, res: Response) {
     };
     db.update(trips).set({
       timeline: sql`COALESCE(${trips.timeline}, '[]'::jsonb) || ${JSON.stringify([timelineEntry])}::jsonb`,
-    }).where(eq(trips.id, tripId)).catch(() => {});
+    }).where(eq(trips.id, tripId)).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     console.info(JSON.stringify({ event: "waiting_extended", tripId, extendCount: newExtendCount, totalMinutes: newWaitMinutes }));
     res.json({
@@ -2192,7 +2192,7 @@ export async function markNoShowHandler(req: AuthRequest, res: Response) {
     };
     db.update(trips).set({
       timeline: sql`COALESCE(${trips.timeline}, '[]'::jsonb) || ${JSON.stringify([timelineEntry])}::jsonb`,
-    }).where(eq(trips.id, tripId)).catch(() => {});
+    }).where(eq(trips.id, tripId)).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     storage.createAuditLog({
       userId: req.user!.userId,
@@ -2201,7 +2201,7 @@ export async function markNoShowHandler(req: AuthRequest, res: Response) {
       entityId: tripId,
       details: JSON.stringify({ reason, notes, waitedMinutes: trip.waitingMinutes, extendCount: trip.waitingExtendCount }),
       cityId: trip.cityId,
-    }).catch(() => {});
+    }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
 
     console.info(JSON.stringify({ event: "no_show_marked", tripId, driverId: user.driverId, reason }));
     res.json({ ok: true, trip: updated });

@@ -464,7 +464,7 @@ export function registerDispatchRoutes(app: Express) {
             ).catch((err: any) => {
               console.warn(`[DISPATCH] Route compute for trip ${trip_id} failed: ${err.message}`);
             });
-          }).catch(() => {});
+          }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
         }
 
         await storage.createAuditLog({

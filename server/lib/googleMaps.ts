@@ -20,7 +20,7 @@ async function dbRouteGet(keyHash: string): Promise<RouteResult | null> {
     if (rows.length === 0) return null;
     const row = rows[0];
     if (row.expiresAt < new Date()) {
-      db.delete(routeCacheTable).where(eq(routeCacheTable.keyHash, keyHash)).catch(() => {});
+      db.delete(routeCacheTable).where(eq(routeCacheTable.keyHash, keyHash)).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       return null;
     }
     return row.responseJson as RouteResult;
@@ -545,7 +545,7 @@ export async function buildRoute(
   };
 
   routeCache.set(key, result);
-  dbRoutePut(keyH, originStr, destStr, result).catch(() => {});
+  dbRoutePut(keyH, originStr, destStr, result).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   return result;
 }
 

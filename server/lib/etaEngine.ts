@@ -61,7 +61,7 @@ async function processTripsForEta(cityId?: number): Promise<number> {
         broadcastTripSupabaseThrottled(trip.id, {
           type: "eta_update",
           data: { minutes: eta.minutes, distanceMiles: eta.distanceMiles, source: eta.source },
-        }).catch(() => {});
+        }).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
       }
 
       if (eta.minutes <= TEN_MIN_THRESHOLD) {

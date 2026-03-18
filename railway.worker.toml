@@ -4,8 +4,8 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "sh script/start-worker.sh"
-healthcheckPath = "/api/health/live"
-healthcheckTimeout = 300
+healthcheckPath = "/api/health/ready"
+healthcheckTimeout = 150
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 5
 numReplicas = 1

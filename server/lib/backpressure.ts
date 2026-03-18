@@ -173,7 +173,7 @@ export async function shouldPublishLocationRedis(tripId: number): Promise<boolea
   } catch {}
 
   cache.set(`bp:trip:${tripId}:loc:last_ts`, now, interval * 2);
-  setJson(key, now, Math.ceil(interval / 1000)).catch(() => {});
+  setJson(key, now, Math.ceil(interval / 1000)).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   return true;
 }
 
@@ -205,7 +205,7 @@ export async function shouldPublishEta(tripId: number): Promise<boolean> {
   } catch {}
 
   cache.set(memKey, now, PUBLISH_INTERVAL_ETA * 2);
-  setJson(redisKey, now, Math.ceil(PUBLISH_INTERVAL_ETA / 1000)).catch(() => {});
+  setJson(redisKey, now, Math.ceil(PUBLISH_INTERVAL_ETA / 1000)).catch((err: any) => { if (err) console.error("[CATCH]", err.message || err); });
   return true;
 }
 

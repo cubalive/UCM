@@ -1,26 +1,92 @@
 import type { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 
-// ── PII Masking ─────────────────────────────────────────────────────────────
+// ── PHI Field Names to Redact ─────────────────────────────────────────────
+// Auto-redact these field names in any logged object
+const PHI_FIELD_NAMES = new Set([
+  "firstname", "lastname", "fullname", "patientname", "name",
+  "ssn", "socialsecuritynumber",
+  "dob", "dateofbirth", "birthdate",
+  "phone", "phonenumber", "cellphone", "mobilephone", "homephone",
+  "email", "emailaddress",
+  "address", "streetaddress", "homeaddress", "mailingaddress",
+  "mrn", "medicalrecordnumber",
+  "memberid", "subscriberid", "policyid",
+  "notes", "comments", "originalmessage",
+  "patientfirstname", "patientlastname",
+  "driverfirstname", "driverlastname",
+  "contactname", "emergencycontact",
+  "insuranceid", "medicaidid",
+]);
+
+// ── PII Regex Patterns ─────────────────────────────────────────────────────
 
 const PII_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   // SSN: 123-45-6789 or 123456789
-  { pattern: /\b\d{3}-?\d{2}-?\d{4}\b/g, replacement: "***-**-****" },
+  { pattern: /\b\d{3}-\d{2}-\d{4}\b/g, replacement: "[SSN-REDACTED]" },
+  { pattern: /\b\d{9}\b/g, replacement: "[SSN-REDACTED]" },
   // Phone: various US formats
-  { pattern: /\b(\+?1?[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g, replacement: "***-***-****" },
+  { pattern: /\b(\+?1?[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g, replacement: "[PHONE-REDACTED]" },
   // DOB-like dates: YYYY-MM-DD or MM/DD/YYYY
-  { pattern: /\b(19|20)\d{2}[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])\b/g, replacement: "****-**-**" },
-  { pattern: /\b(0[1-9]|1[0-2])[/](0[1-9]|[12]\d|3[01])[/](19|20)\d{2}\b/g, replacement: "**/**/*****" },
-  // Email (mask local part)
-  { pattern: /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g, replacement: "***@***.***" },
+  { pattern: /\b(19|20)\d{2}[-/](0[1-9]|1[0-2])[-/](0[1-9]|[12]\d|3[01])\b/g, replacement: "[DATE-REDACTED]" },
+  { pattern: /\b(0[1-9]|1[0-2])[/](0[1-9]|[12]\d|3[01])[/](19|20)\d{2}\b/g, replacement: "[DATE-REDACTED]" },
+  // Email
+  { pattern: /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g, replacement: "[EMAIL-REDACTED]" },
 ];
 
-function maskPii(value: string): string {
+/**
+ * Redact PHI field names from an object (deep).
+ */
+function redactPhiFields(obj: unknown, depth: number = 0): unknown {
+  if (depth > 10) return "[DEEP-REDACTED]";
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === "string") return maskPiiPatterns(obj);
+  if (typeof obj === "number" || typeof obj === "boolean") return obj;
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => redactPhiFields(item, depth + 1));
+  }
+
+  if (typeof obj === "object") {
+    const redacted: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      const normalizedKey = key.toLowerCase().replace(/[_-]/g, "");
+      if (PHI_FIELD_NAMES.has(normalizedKey)) {
+        redacted[key] = "[PHI-REDACTED]";
+      } else {
+        redacted[key] = redactPhiFields(value, depth + 1);
+      }
+    }
+    return redacted;
+  }
+
+  return obj;
+}
+
+function maskPiiPatterns(value: string): string {
   let masked = value;
   for (const { pattern, replacement } of PII_PATTERNS) {
+    // Reset regex lastIndex since we're using /g
+    pattern.lastIndex = 0;
     masked = masked.replace(pattern, replacement);
   }
   return masked;
+}
+
+/**
+ * Sanitize error message — never log originalMessage, truncate to 200 chars.
+ */
+function sanitizeErrorMessage(err: unknown): string {
+  if (!err) return "";
+  if (typeof err === "string") {
+    return maskPiiPatterns(err.slice(0, 200));
+  }
+  if (typeof err === "object" && err !== null) {
+    // Never log originalMessage — only use message
+    const msg = (err as any).message || String(err);
+    return maskPiiPatterns(String(msg).slice(0, 200));
+  }
+  return String(err).slice(0, 200);
 }
 
 // ── Paths to skip logging (healthchecks, static assets) ─────────────────────
@@ -84,7 +150,7 @@ export function structuredLoggerMiddleware(
     const entry: Record<string, unknown> = {
       event: "http_request",
       method: req.method,
-      path: maskPii(path),
+      path: maskPiiPatterns(path),
       statusCode: res.statusCode,
       durationMs,
       userId: user?.userId ?? null,
@@ -92,9 +158,9 @@ export function structuredLoggerMiddleware(
       companyId: user?.companyId ?? null,
       requestId: req.requestId ?? null,
       userAgent: req.headers["user-agent"]
-        ? maskPii(req.headers["user-agent"])
+        ? maskPiiPatterns(req.headers["user-agent"])
         : null,
-      ip: getClientIp(req),
+      ip: hashClientIp(req),
       contentLength: res.getHeader("content-length") ?? null,
       error: res.statusCode >= 400 ? getErrorHint(res.statusCode) : null,
       ts: new Date().toISOString(),
@@ -113,10 +179,15 @@ export function structuredLoggerMiddleware(
   next();
 }
 
+// ── Exported Utilities ──────────────────────────────────────────────────────
+
+/** Redact PHI from any object before logging. */
+export { redactPhiFields, maskPiiPatterns, sanitizeErrorMessage };
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Hash IP for HIPAA compliance — never log raw IPs */
-function getClientIp(req: Request): string {
+function hashClientIp(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
   let ip: string;
   if (typeof forwarded === "string") {

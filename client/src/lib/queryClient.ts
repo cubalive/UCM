@@ -132,13 +132,64 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
+// F3/F8 FIX: Replace staleTime: Infinity with tiered stale times
+// Different data types have different freshness requirements
+export const STALE_TIMES = {
+  /** Real-time data: driver locations, active trip status — 15 seconds */
+  REALTIME: 15 * 1000,
+  /** Semi-live data: trip lists, dispatch board — 60 seconds */
+  SEMI_LIVE: 60 * 1000,
+  /** Slow-changing: clinics, users, drivers — 5 minutes */
+  SLOW: 5 * 60 * 1000,
+  /** Static: config, reference data, vehicle makes — 30 minutes */
+  STATIC: 30 * 60 * 1000,
+} as const;
+
+/**
+ * Helper for optimistic updates with automatic rollback.
+ * Usage: withOptimisticUpdate({ queryClient, queryKey, optimisticUpdate, mutationFn })
+ */
+export function withOptimisticUpdate<TData, TVariables>({
+  queryKey,
+  optimisticUpdate,
+  mutationFn,
+}: {
+  queryKey: readonly unknown[];
+  optimisticUpdate: (old: TData | undefined, variables: TVariables) => TData;
+  mutationFn: (variables: TVariables) => Promise<unknown>;
+}) {
+  return {
+    mutationFn,
+    onMutate: async (variables: TVariables) => {
+      // Cancel any outgoing queries
+      await queryClient.cancelQueries({ queryKey });
+      // Snapshot the current value
+      const previousData = queryClient.getQueryData<TData>(queryKey);
+      // Optimistically update
+      queryClient.setQueryData<TData>(queryKey, (old) => optimisticUpdate(old, variables));
+      return { previousData };
+    },
+    onError: (_err: unknown, _variables: TVariables, context: { previousData?: TData } | undefined) => {
+      // Rollback to snapshot
+      if (context?.previousData !== undefined) {
+        queryClient.setQueryData(queryKey, context.previousData);
+      }
+    },
+    onSettled: () => {
+      // Refetch after mutation
+      queryClient.invalidateQueries({ queryKey });
+    },
+  };
+}
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      // F3 FIX: Default to semi-live stale time instead of Infinity
+      staleTime: STALE_TIMES.SEMI_LIVE,
       retry: (failureCount, error) => {
         if (error instanceof Error && error.message.startsWith("401")) {
           return failureCount < 1;
