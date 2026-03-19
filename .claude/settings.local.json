@@ -6,7 +6,9 @@
       "mcp__66fdc74b-87b4-4add-8b3b-d6e90cb53fb8__get_deployment_build_logs",
       "mcp__66fdc74b-87b4-4add-8b3b-d6e90cb53fb8__list_teams",
       "mcp__66fdc74b-87b4-4add-8b3b-d6e90cb53fb8__list_projects",
-      "mcp__66fdc74b-87b4-4add-8b3b-d6e90cb53fb8__list_deployments"
+      "mcp__66fdc74b-87b4-4add-8b3b-d6e90cb53fb8__list_deployments",
+      "mcp__66fdc74b-87b4-4add-8b3b-d6e90cb53fb8__get_project",
+      "mcp__66fdc74b-87b4-4add-8b3b-d6e90cb53fb8__deploy_to_vercel"
     ]
   }
 }
